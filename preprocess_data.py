@@ -96,7 +96,7 @@ def main():
         # Stained images should be saved to domain B (verify path if needed).
         save_patches(
             os.path.join(STAINED_DIR, img_name),
-            f"{DATASET_DIR}\\trainA"
+            f"{DATASET_DIR}\\trainB"
         )
     print(f"Saved Stained Images Patch")
 
