@@ -7,7 +7,7 @@ import warnings
 # Allow very large whole-slide images without PIL raising a DecompressionBombWarning.
 # This is common for whole-slide pathology images, which can be gigapixels.
 Image.MAX_IMAGE_PIXELS = None
-warnings.simplefilter('ignore', Image.DecompressionBombWarning)
+warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
 
 def preprocess_image(img, size=256):
@@ -17,7 +17,7 @@ def preprocess_image(img, size=256):
     # Convert to float for normalization math.
     img = np.array(img).astype(np.float32)
     # Map [0, 255] to [-1, 1] (CycleGAN-style convention).
-    img = (img / 127.5) - 1.0   # normalize to [-1, 1]
+    img = (img / 127.5) - 1.0  # normalize to [-1, 1]
     return img
 
 
@@ -35,6 +35,15 @@ def extract_patches_pil(img, patch_size=256, stride=256):
             patches.append(patch)
 
     return patches
+
+
+def split_filenames(file_list, train_ratio=0.8, seed=42):
+    file_list = sorted(file_list)
+    np.random.seed(seed)
+    np.random.shuffle(file_list)
+
+    split_idx = int(len(file_list) * train_ratio)
+    return file_list[:split_idx], file_list[split_idx:]
 
 
 def save_patches(image_path, save_dir, patch_size=256):
@@ -81,24 +90,50 @@ def main():
     # CycleGAN-style output folders.
     os.makedirs(f"{DATASET_DIR}\\trainA", exist_ok=True)
     os.makedirs(f"{DATASET_DIR}\\trainB", exist_ok=True)
+    os.makedirs(f"{DATASET_DIR}\\testA", exist_ok=True)
+    os.makedirs(f"{DATASET_DIR}\\testB", exist_ok=True)
 
     print(f"Saving Unstained Images Patch")
-    for img_name in os.listdir(UNSTAINED_DIR):
+    print(f"Splitting images in train test list")
+    unstained_files = [
+        f
+        for f in os.listdir(UNSTAINED_DIR)
+        if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    ]
+    trainA_files, testA_files = split_filenames(unstained_files)
+
+    print(f"Saving Unstained TRAIN patches")
+    for img_name in trainA_files:
         # Unstained images become domain A.
-        save_patches(
-            os.path.join(UNSTAINED_DIR, img_name),
-            f"{DATASET_DIR}\\trainA"
-        )
-    print(f"Saved Unstained Images Patch")
+        save_patches(os.path.join(UNSTAINED_DIR, img_name), f"{DATASET_DIR}\\trainA")
+    print(f"Saved Unstained Train Patch")
+
+    print(f"Saving Unstained TEST patches")
+    for img_name in testA_files:
+        # Unstained images become domain A.
+        save_patches(os.path.join(UNSTAINED_DIR, img_name), f"{DATASET_DIR}\\testA")
+    print(f"Saved Unstained TEST Patch")
 
     print(f"Saving Stained Images Patch")
-    for img_name in os.listdir(STAINED_DIR):
-        # Stained images should be saved to domain B (verify path if needed).
-        save_patches(
-            os.path.join(STAINED_DIR, img_name),
-            f"{DATASET_DIR}\\trainB"
-        )
-    print(f"Saved Stained Images Patch")
+    print(f"Splitting images in train test list")
+    stained_files = [
+        f
+        for f in os.listdir(STAINED_DIR)
+        if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    ]
+    trainB_files, testB_files = split_filenames(stained_files)
+
+    print(f"Saving Stained TRAIN patches")
+    for img_name in trainB_files:
+        # Stained images become domain B.
+        save_patches(os.path.join(STAINED_DIR, img_name), f"{DATASET_DIR}\\trainB")
+    print(f"Saved Stained Train Patch")
+
+    print(f"Saving Stained TEST patches")
+    for img_name in testB_files:
+        # Stained images become domain B.
+        save_patches(os.path.join(STAINED_DIR, img_name), f"{DATASET_DIR}\\testB")
+    print(f"Saved Stained TEST Patch")
 
 
 if __name__ == "__main__":
