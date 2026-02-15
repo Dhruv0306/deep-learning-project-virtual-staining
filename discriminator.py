@@ -125,8 +125,8 @@ def getDiscriminators():
     y_B = D_B(x)  # Forward pass through discriminator B
 
     # Print output shapes for verification
-    print(y_A.shape)
-    print(y_B.shape)
+    print(f"D_A output shappe: {y_A.shape}")
+    print(f"D_B output shappe: {y_B.shape}")
 
     return D_A, D_B
 
