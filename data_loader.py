@@ -11,10 +11,10 @@ import matplotlib.pyplot as plt
 def denormalize(t):
     """
     Denormalize tensors from [-1,1] back to [0,1] range for visualization.
-    
+
     Args:
         t (torch.Tensor): Input tensor with values in [-1,1] range
-        
+
     Returns:
         torch.Tensor: Denormalized tensor with values clamped to [0,1] range
     """
@@ -27,7 +27,7 @@ class UnpairedImageDataset(Dataset):
     def __init__(self, dir_A, dir_B, transform=None, epoch_size=None):
         """
         Initialize the UnpairedImageDataset.
-        
+
         Args:
             dir_A (str): Path to directory containing images from domain A
             dir_B (str): Path to directory containing images from domain B
@@ -45,7 +45,7 @@ class UnpairedImageDataset(Dataset):
     def __len__(self):
         """
         Return the size of the dataset.
-        
+
         Returns:
             int: Maximum length between the two domains to ensure both are fully utilized
         """
@@ -58,15 +58,16 @@ class UnpairedImageDataset(Dataset):
     def __getitem__(self, idx):
         """
         Get a sample from the dataset.
-        
+
         Args:
             idx (int): Index of the sample to retrieve
-            
+
         Returns:
             dict: Dictionary containing images from both domains with keys "A" and "B"
         """
         # Get image filenames using modulo to handle different domain sizes
         import random
+
         img_A = self.images_A[idx % len(self.images_A)]
         img_B = random.choice(self.images_B)
 
@@ -92,7 +93,7 @@ class UnpairedImageDataset(Dataset):
 def getDataLoader(epoch_size=None):
     """
     Create and return train and test data loaders for CycleGAN training.
-    
+
     This function sets up the complete data loading pipeline including:
     - System information printing for debugging
     - Dataset path configuration
@@ -100,7 +101,7 @@ def getDataLoader(epoch_size=None):
     - Training and testing dataset creation
     - DataLoader initialization with appropriate settings
     - Sanity checks to verify data loading
-    
+
     Returns:
         tuple: A tuple containing (train_loader, test_loader)
             - train_loader (DataLoader): DataLoader for training data
@@ -129,7 +130,9 @@ def getDataLoader(epoch_size=None):
         [
             transforms.Resize((256, 256)),  # Resize images to 256x256 pixels
             transforms.ToTensor(),  # Convert PIL image to tensor and scale to [0,1]
-            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),  # Normalize to [-1,1] range
+            transforms.Normalize(
+                mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)
+            ),  # Normalize to [-1,1] range
         ]
     )
 
@@ -145,10 +148,12 @@ def getDataLoader(epoch_size=None):
     # Create training data loader with CycleGAN standard settings
     train_loader = DataLoader(
         train_dataset,
-        batch_size=1,  # IMPORTANT: CycleGAN standard batch size
+        batch_size=4,  # IMPORTANT: CycleGAN standard batch size
         shuffle=True,  # Shuffle training data for better learning
-        num_workers=6,  # Use 6 worker processes for data loading
+        num_workers=4,  # Use 4 worker processes for data loading
         pin_memory=True,  # Pin memory for faster GPU transfer
+        persistent_workers=True,
+        prefetch_factor=2,
     )
 
     # Create Testing Dataset + DataLoader

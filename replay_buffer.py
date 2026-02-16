@@ -8,8 +8,8 @@ class ReplayBuffer:
 
     def push_and_pop(self, tensors):
         output = []
-        for tensor in tensors:
-            tensor = torch.unsqueeze(tensor, 0)
+        for tensor in tensors.detach():
+            tensor = tensor.unsqueeze(0)
             if len(self.data) < self.max_size:
                 self.data.append(tensor)
                 output.append(tensor)
