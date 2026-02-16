@@ -17,6 +17,9 @@ class CycleGANLoss:
         self.criterion_GAN = nn.MSELoss()  # LSGAN
         self.criterion_cycle = nn.L1Loss()
         self.criterion_identity = nn.L1Loss()
+        # Keep independent replay buffers across training steps for both domains.
+        self.fake_A_buffer = ReplayBuffer()
+        self.fake_B_buffer = ReplayBuffer()
 
     def generator_loss(self, real_A, real_B, G_AB, G_BA, D_A, D_B):
 
@@ -63,15 +66,13 @@ class CycleGANLoss:
 
         return loss_G, fake_A, fake_B
 
-    def discriminator_loss(self, D, real, fake):
-
-        replay = ReplayBuffer()
+    def discriminator_loss(self, D, real, fake, replay_buffer=None):
         # Real loss
         pred_real = D(real)
         loss_real = self.criterion_GAN(pred_real, torch.ones_like(pred_real))
 
         # Fake loss
-        fake_buffer = replay.push_and_pop(fake)
+        fake_buffer = replay_buffer.push_and_pop(fake) if replay_buffer else fake
         pred_fake = D(fake_buffer.detach())
         loss_fake = self.criterion_GAN(pred_fake, torch.zeros_like(pred_fake))
 
