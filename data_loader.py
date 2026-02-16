@@ -24,7 +24,7 @@ def denormalize(t):
 # Unpaired Dataset Class (This Is the Core)
 # Custom dataset class for handling unpaired image datasets used in CycleGAN training
 class UnpairedImageDataset(Dataset):
-    def __init__(self, dir_A, dir_B, transform=None):
+    def __init__(self, dir_A, dir_B, transform=None, epoch_size=None):
         """
         Initialize the UnpairedImageDataset.
         
@@ -40,6 +40,7 @@ class UnpairedImageDataset(Dataset):
         self.images_A = sorted(os.listdir(dir_A))
         self.images_B = sorted(os.listdir(dir_B))
         self.transform = transform
+        self.epoch_size = epoch_size
 
     def __len__(self):
         """
@@ -50,6 +51,8 @@ class UnpairedImageDataset(Dataset):
         """
         # CycleGAN uses max length to keep sampling both domains
         # Return the maximum length to ensure both domains are fully utilized
+        if self.epoch_size is not None:
+            return self.epoch_size
         return max(len(self.images_A), len(self.images_B))
 
     def __getitem__(self, idx):
@@ -63,8 +66,9 @@ class UnpairedImageDataset(Dataset):
             dict: Dictionary containing images from both domains with keys "A" and "B"
         """
         # Get image filenames using modulo to handle different domain sizes
+        import random
         img_A = self.images_A[idx % len(self.images_A)]
-        img_B = self.images_B[idx % len(self.images_B)]
+        img_B = random.choice(self.images_B)
 
         # Construct full file paths
         path_A = os.path.join(self.dir_A, img_A)
@@ -85,7 +89,7 @@ class UnpairedImageDataset(Dataset):
 
 # Data Loader Main Function
 # Main function to create and return train and test data loaders
-def getDataLoader():
+def getDataLoader(epoch_size=None):
     """
     Create and return train and test data loaders for CycleGAN training.
     
@@ -106,8 +110,9 @@ def getDataLoader():
     print(f"torch version: {torch.__version__}")
     print(f"Checking GPU available: ")
     print(f"GPU available: {torch.cuda.is_available()}")
-    print(f"GPU count: {torch.cuda.device_count()}")
-    print(f"GPU name: {torch.cuda.get_device_name(0)}")
+    if torch.cuda.is_available():
+        print(f"GPU count: {torch.cuda.device_count()}")
+        print(f"GPU name: {torch.cuda.get_device_name(0)}")
 
     # Define paths
     # Train dataset paths
@@ -134,6 +139,7 @@ def getDataLoader():
         dir_A=trainA,
         dir_B=trainB,
         transform=transform,
+        epoch_size=epoch_size,
     )
 
     # Create training data loader with CycleGAN standard settings
@@ -141,7 +147,7 @@ def getDataLoader():
         train_dataset,
         batch_size=1,  # IMPORTANT: CycleGAN standard batch size
         shuffle=True,  # Shuffle training data for better learning
-        num_workers=2,  # Use 2 worker processes for data loading
+        num_workers=6,  # Use 6 worker processes for data loading
         pin_memory=True,  # Pin memory for faster GPU transfer
     )
 
@@ -182,7 +188,7 @@ def getDataLoader():
 # Main execution block - runs when script is executed directly
 if __name__ == "__main__":
     # Get the data loaders
-    train_loader, test_loader = getDataLoader()
+    train_loader, test_loader = getDataLoader(epoch_size=3000)
 
     # Check train data loader
     # Load a batch from training data for visualization

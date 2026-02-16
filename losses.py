@@ -1,6 +1,7 @@
 # Imports
 import torch
 import torch.nn as nn
+from replay_buffer import ReplayBuffer
 
 # Full Loss Structure
 # L_G = L_GAN + λ_cycle * L_cycle + λ_identity * L_identity
@@ -64,12 +65,14 @@ class CycleGANLoss:
 
     def discriminator_loss(self, D, real, fake):
 
+        replay = ReplayBuffer()
         # Real loss
         pred_real = D(real)
         loss_real = self.criterion_GAN(pred_real, torch.ones_like(pred_real))
 
         # Fake loss
-        pred_fake = D(fake.detach())
+        fake_buffer = replay.push_and_pop(fake)
+        pred_fake = D(fake_buffer.detach())
         loss_fake = self.criterion_GAN(pred_fake, torch.zeros_like(pred_fake))
 
         # Total
