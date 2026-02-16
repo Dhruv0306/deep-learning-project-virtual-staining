@@ -8,29 +8,36 @@ from data_loader import getDataLoader
 from generator import getGenerators
 from discriminator import getDiscriminators
 from losses import CycleGANLoss
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def train(epoch_size=None):
     """
     Train a CycleGAN model for image-to-image translation.
-    
+
     This function implements the complete training loop for CycleGAN, including:
     - Loading data and models
     - Setting up optimizers and schedulers
     - Training generators and discriminators alternately
     - Saving checkpoints periodically
-    
+
     Args:
         epoch_size (int, optional): Number of samples per epoch. Defaults to 3000 if None.
-        
+
     Returns:
         tuple: A tuple containing:
             - history (dict): Training history with loss values for each epoch and batch
             - G_AB (torch.nn.Module): Generator for A->B translation
-            - G_BA (torch.nn.Module): Generator for B->A translation  
+            - G_BA (torch.nn.Module): Generator for B->A translation
             - D_A (torch.nn.Module): Discriminator for domain A
             - D_B (torch.nn.Module): Discriminator for domain B
     """
+    # Enable cuDNN benchmark mode for faster training on fixed input sizes
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
     # Load data loaders, generators, discriminators, loss class
     # Get training and test data loaders with specified epoch size
     train_loader, test_loader = getDataLoader(
@@ -42,6 +49,18 @@ def train(epoch_size=None):
     D_A, D_B = getDiscriminators()
     # Initialize CycleGAN loss function with cycle and identity loss weights
     loss_fn = CycleGANLoss(lambda_cycle=10.0, lambda_identity=5.0)
+    # Set device to GPU if available, otherwise CPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Enable automatic mixed precision only for CUDA devices
+    use_amp = device.type == "cuda"
+    # Initialize gradient scaler for mixed precision training
+    scaler = GradScaler("cuda", enabled=use_amp)
+
+    # Move models to device
+    G_AB = G_AB.to(device)
+    G_BA = G_BA.to(device)
+    D_A = D_A.to(device)
+    D_B = D_B.to(device)
 
     # Optimizers
     # Learning rate for all optimizers
@@ -77,16 +96,8 @@ def train(epoch_size=None):
     )
 
     # Full Training Loop
-    # Enable cuDNN benchmark mode for faster training on fixed input sizes
-    torch.backends.cudnn.benchmark = True
     # Total number of training epochs
     num_epochs = 200
-    # Set device to GPU if available, otherwise CPU
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # Enable automatic mixed precision only for CUDA devices
-    use_amp = device.type == "cuda"
-    # Initialize gradient scaler for mixed precision training
-    scaler = GradScaler("cuda", enabled=use_amp)
     # Dictionary to store training history
     history = {}
 
@@ -132,6 +143,8 @@ def train(epoch_size=None):
             # Backward pass and optimizer step with gradient scaling
             scaler.scale(loss_G).backward()
             scaler.step(optimizer=optimizer_G)
+            scaler.update()
+
             # Unfreeze discriminator parameters
             for p in D_A.parameters():
                 p.requires_grad_(True)
@@ -152,6 +165,7 @@ def train(epoch_size=None):
             # Backward pass and optimizer step
             scaler.scale(loss_D_A).backward()
             scaler.step(optimizer_D_A)
+            scaler.update()
 
             # ==========================
             #  Train Discriminator B
@@ -167,8 +181,6 @@ def train(epoch_size=None):
             # Backward pass and optimizer step
             scaler.scale(loss_D_B).backward()
             scaler.step(optimizer_D_B)
-
-            # Update gradient scaler for next iteration
             scaler.update()
 
             # ==========================
@@ -182,7 +194,7 @@ def train(epoch_size=None):
                 "Loss_D_B": loss_D_B.item(),
             }
             # Print progress every 500 batches
-            if i % 500 == 0:
+            if i % 50 == 0:
                 print(
                     f"Epoch [{epoch + 1}/{num_epochs}] "
                     f"Batch [{i}/{len(train_loader)}] "
@@ -216,7 +228,129 @@ def train(epoch_size=None):
 
     return history, G_AB, G_BA, D_A, D_B
 
+
+def visualize_history(history):
+    """
+    Visualize the training history of CycleGAN losses.
+
+    Creates plots showing the progression of generator and discriminator losses
+    over training epochs and batches.
+
+    Args:
+        history (dict): Training history dictionary with loss values for each epoch and batch
+    """
+    # Extract epoch numbers
+    epochs = list(history.keys())
+
+    # Initialize lists to store average losses per epoch
+    avg_loss_G = []
+    avg_loss_D_A = []
+    avg_loss_D_B = []
+
+    # Calculate average losses for each epoch
+    for epoch in epochs:
+        epoch_data = history[epoch]
+
+        # Extract loss values for all batches in this epoch
+        batch_loss_G = [batch_data["Loss_G"] for batch_data in epoch_data.values()]
+        batch_loss_D_A = [batch_data["Loss_D_A"] for batch_data in epoch_data.values()]
+        batch_loss_D_B = [batch_data["Loss_D_B"] for batch_data in epoch_data.values()]
+
+        # Calculate averages
+        avg_loss_G.append(np.mean(batch_loss_G))
+        avg_loss_D_A.append(np.mean(batch_loss_D_A))
+        avg_loss_D_B.append(np.mean(batch_loss_D_B))
+
+    # Create subplots for different loss visualizations
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    fig.suptitle("CycleGAN Training History", fontsize=16)
+
+    # Plot 1: All losses over epochs
+    axes[0, 0].plot(
+        epochs, avg_loss_G, label="Generator Loss", color="blue", linewidth=2
+    )
+    axes[0, 0].plot(
+        epochs, avg_loss_D_A, label="Discriminator A Loss", color="red", linewidth=2
+    )
+    axes[0, 0].plot(
+        epochs, avg_loss_D_B, label="Discriminator B Loss", color="green", linewidth=2
+    )
+    axes[0, 0].set_xlabel("Epoch")
+    axes[0, 0].set_ylabel("Loss")
+    axes[0, 0].set_title("Average Losses per Epoch")
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+
+    # Plot 2: Generator loss only
+    axes[0, 1].plot(epochs, avg_loss_G, color="blue", linewidth=2)
+    axes[0, 1].set_xlabel("Epoch")
+    axes[0, 1].set_ylabel("Generator Loss")
+    axes[0, 1].set_title("Generator Loss Over Time")
+    axes[0, 1].grid(True, alpha=0.3)
+
+    # Plot 3: Discriminator losses comparison
+    axes[1, 0].plot(
+        epochs, avg_loss_D_A, label="Discriminator A", color="red", linewidth=2
+    )
+    axes[1, 0].plot(
+        epochs, avg_loss_D_B, label="Discriminator B", color="green", linewidth=2
+    )
+    axes[1, 0].set_xlabel("Epoch")
+    axes[1, 0].set_ylabel("Discriminator Loss")
+    axes[1, 0].set_title("Discriminator Losses Comparison")
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+
+    # Plot 4: Loss distribution for the last epoch (if available)
+    if epochs:
+        last_epoch = epochs[-1]
+        last_epoch_data = history[last_epoch]
+
+        batch_nums = list(last_epoch_data.keys())
+        last_epoch_loss_G = [last_epoch_data[batch]["Loss_G"] for batch in batch_nums]
+        last_epoch_loss_D_A = [
+            last_epoch_data[batch]["Loss_D_A"] for batch in batch_nums
+        ]
+        last_epoch_loss_D_B = [
+            last_epoch_data[batch]["Loss_D_B"] for batch in batch_nums
+        ]
+
+        axes[1, 1].plot(batch_nums, last_epoch_loss_G, label="Generator", alpha=0.7)
+        axes[1, 1].plot(
+            batch_nums, last_epoch_loss_D_A, label="Discriminator A", alpha=0.7
+        )
+        axes[1, 1].plot(
+            batch_nums, last_epoch_loss_D_B, label="Discriminator B", alpha=0.7
+        )
+        axes[1, 1].set_xlabel("Batch")
+        axes[1, 1].set_ylabel("Loss")
+        axes[1, 1].set_title(f"Batch-wise Losses (Epoch {last_epoch})")
+        axes[1, 1].legend()
+        axes[1, 1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+    # Print summary statistics
+    print("\n=== Training Summary ===")
+    print(f"Total Epochs: {len(epochs)}")
+    print(f"Final Generator Loss: {avg_loss_G[-1]:.4f}")
+    print(f"Final Discriminator A Loss: {avg_loss_D_A[-1]:.4f}")
+    print(f"Final Discriminator B Loss: {avg_loss_D_B[-1]:.4f}")
+    print(f"Average Generator Loss: {np.mean(avg_loss_G):.4f}")
+    print(f"Average Discriminator A Loss: {np.mean(avg_loss_D_A):.4f}")
+    print(f"Average Discriminator B Loss: {np.mean(avg_loss_D_B):.4f}")
+
+    # Save Visualization
+    plt.savefig(
+        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\training_history.png",
+        dpi=300,
+    )
+    plt.close()
+
+
 # Main execution block - runs training when script is executed directly
 if __name__ == "__main__":
     # Start training with 3000 samples per epoch
     history, G_AB, G_BA, D_A, D_B = train(epoch_size=3000)
+    visualize_history(history)
