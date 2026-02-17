@@ -241,6 +241,10 @@ def visualize_history(history):
     Args:
         history (dict): Training history dictionary with loss values for each epoch and batch
     """
+    if not history:
+        print("No training history to visualize.")
+        return
+
     # Extract epoch numbers
     epochs = list(history.keys())
 
@@ -331,7 +335,14 @@ def visualize_history(history):
         axes[1, 1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.show()
+
+    # Save before show to avoid blank images with interactive backends
+    output_path = (
+        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\training_history.png"
+    )
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    print(f"Training history plot saved to {output_path}")
 
     # Print summary statistics
     print("\n=== Training Summary ===")
@@ -343,11 +354,7 @@ def visualize_history(history):
     print(f"Average Discriminator A Loss: {np.mean(avg_loss_D_A):.4f}")
     print(f"Average Discriminator B Loss: {np.mean(avg_loss_D_B):.4f}")
 
-    # Save Visualization
-    plt.savefig(
-        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\training_history.png",
-        dpi=300,
-    )
+    plt.show()
     plt.close()
 
 
