@@ -350,7 +350,7 @@ def visualize_history(history, model_dir=None):
         else model_dir
     )
     output_path = f"{model_dir}\\training_history.png"
-    os.makedirs(output_path, exist_ok=True)
+    os.makedirs(model_dir, exist_ok=True)
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Training history plot saved to {output_path}")
 
