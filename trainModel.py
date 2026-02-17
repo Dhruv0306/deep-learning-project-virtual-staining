@@ -403,7 +403,7 @@ if __name__ == "__main__":
     history, G_AB, G_BA, D_A, D_B = train(
         epoch_size=3000, num_epochs=5, model_dir=model_dir
     )
-    visualize_history(history)
+    visualize_history(history, model_dir=model_dir)
     save_history_to_csv(
         history,
         f"{model_dir}\\training_history.csv",
