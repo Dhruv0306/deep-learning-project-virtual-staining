@@ -10,9 +10,10 @@ from discriminator import getDiscriminators
 from losses import CycleGANLoss
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 
-def train(epoch_size=None):
+def train(epoch_size=None, num_epochs=None):
     """
     Train a CycleGAN model for image-to-image translation.
 
@@ -24,6 +25,7 @@ def train(epoch_size=None):
 
     Args:
         epoch_size (int, optional): Number of samples per epoch. Defaults to 3000 if None.
+        num_epochs (int, optional): Total number of training epochs. Defaults to 200 if None.
 
     Returns:
         tuple: A tuple containing:
@@ -97,7 +99,7 @@ def train(epoch_size=None):
 
     # Full Training Loop
     # Total number of training epochs
-    num_epochs = 200
+    num_epochs = 200 if num_epochs is None else num_epochs
     # Dictionary to store training history
     history = {}
 
@@ -349,8 +351,38 @@ def visualize_history(history):
     plt.close()
 
 
+# Function to write back history to csv
+def save_history_to_csv(history, filename):
+    """
+    Save the training history to a CSV file.
+
+    This function converts the nested history dictionary into a flat DataFrame
+    and saves it as a CSV file for further analysis.
+
+    Args:
+        history (dict): Training history dictionary with loss values for each epoch and batch
+        filename (str): Path to the output CSV file
+    """
+    # Flatten the nested dictionary structure into a list of dictionaries
+    flattened_data = []
+    for epoch, batches in history.items():
+        for batch, losses in batches.items():
+            row = {"Epoch": epoch, "Batch": batch}
+            row.update(losses)
+            flattened_data.append(row)
+
+    # Convert to DataFrame and save to CSV
+    df = pd.DataFrame(flattened_data)
+    df.to_csv(filename, index=False)
+    print(f"\nHistory saved to {filename}")
+
+
 # Main execution block - runs training when script is executed directly
 if __name__ == "__main__":
     # Start training with 3000 samples per epoch
-    history, G_AB, G_BA, D_A, D_B = train(epoch_size=3000)
+    history, G_AB, G_BA, D_A, D_B = train(epoch_size=3000, num_epochs=5)
     visualize_history(history)
+    save_history_to_csv(
+        history,
+        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\training_history.csv",
+    )
