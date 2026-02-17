@@ -397,7 +397,7 @@ def save_history_to_csv(history, filename):
 # Main execution block - runs training when script is executed directly
 if __name__ == "__main__":
     # Start training with 3000 samples per epoch
-    model_dir = f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}"
+    model_dir = f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
     os.makedirs(model_dir, exist_ok=True)
     print(f"Model directory: {model_dir}")
     history, G_AB, G_BA, D_A, D_B = train(
