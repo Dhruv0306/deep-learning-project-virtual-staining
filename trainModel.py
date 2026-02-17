@@ -11,9 +11,10 @@ from losses import CycleGANLoss
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 
-def train(epoch_size=None, num_epochs=None):
+def train(epoch_size=None, num_epochs=None, model_dir=None):
     """
     Train a CycleGAN model for image-to-image translation.
 
@@ -26,6 +27,7 @@ def train(epoch_size=None, num_epochs=None):
     Args:
         epoch_size (int, optional): Number of samples per epoch. Defaults to 3000 if None.
         num_epochs (int, optional): Total number of training epochs. Defaults to 200 if None.
+        model_dir (str, optional): Directory path to save model checkpoints. Defaults to "models" if None.
 
     Returns:
         tuple: A tuple containing:
@@ -104,7 +106,11 @@ def train(epoch_size=None, num_epochs=None):
     history = {}
 
     # Create directory for saving model checkpoints
-    model_dir = "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models"
+    model_dir = (
+        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models"
+        if model_dir is None
+        else model_dir
+    )
     os.makedirs(model_dir, exist_ok=True)
 
     # Main training loop over epochs
@@ -231,7 +237,7 @@ def train(epoch_size=None, num_epochs=None):
     return history, G_AB, G_BA, D_A, D_B
 
 
-def visualize_history(history):
+def visualize_history(history, model_dir=None):
     """
     Visualize the training history of CycleGAN losses.
 
@@ -240,6 +246,7 @@ def visualize_history(history):
 
     Args:
         history (dict): Training history dictionary with loss values for each epoch and batch
+        model_dir (str, optional): Directory path where plots will be saved. Defaults to "models".
     """
     if not history:
         print("No training history to visualize.")
@@ -337,10 +344,13 @@ def visualize_history(history):
     plt.tight_layout()
 
     # Save before show to avoid blank images with interactive backends
-    output_path = (
-        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\training_history.png"
+    model_dir = (
+        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models"
+        if model_dir is None
+        else model_dir
     )
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    output_path = f"{model_dir}\\training_history.png"
+    os.makedirs(output_path, exist_ok=True)
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Training history plot saved to {output_path}")
 
@@ -387,9 +397,12 @@ def save_history_to_csv(history, filename):
 # Main execution block - runs training when script is executed directly
 if __name__ == "__main__":
     # Start training with 3000 samples per epoch
-    history, G_AB, G_BA, D_A, D_B = train(epoch_size=3000, num_epochs=5)
+    model_dir = f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    history, G_AB, G_BA, D_A, D_B = train(
+        epoch_size=3000, num_epochs=5, model_dir=model_dir
+    )
     visualize_history(history)
     save_history_to_csv(
         history,
-        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\training_history.csv",
+        f"{model_dir}\\training_history.csv",
     )
