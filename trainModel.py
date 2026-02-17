@@ -201,7 +201,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None):
                 "Loss_D_A": loss_D_A.item(),
                 "Loss_D_B": loss_D_B.item(),
             }
-            # Print progress every 500 batches
+            # Print progress every 50 batches
             if i % 50 == 0:
                 print(
                     f"Epoch [{epoch + 1}/{num_epochs}] "
@@ -213,8 +213,8 @@ def train(epoch_size=None, num_epochs=None, model_dir=None):
 
         # Store epoch history
         history[epoch + 1] = epochStep
-        # Save checkpoint every 10 epochs
-        if (epoch + 1) % 10 == 0:
+        # Save checkpoint every 20 epochs
+        if (epoch + 1) % 20 == 0:
             torch.save(
                 {
                     "epoch": epoch + 1,
