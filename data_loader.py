@@ -185,7 +185,7 @@ def getDataLoader(epoch_size=None):
     # Create optimized training data loader with performance-focused settings
     train_loader = DataLoader(
         train_dataset,
-        batch_size=6,  # CycleGAN standard batch size - balance between memory and gradient quality
+        batch_size=4,  # CycleGAN standard batch size - balance between memory and gradient quality
         shuffle=True,  # Randomize sample order each epoch for better generalization
         num_workers=4,  # Parallel data loading workers for improved throughput
         pin_memory=True,  # Pin memory for faster CPU-to-GPU transfer
