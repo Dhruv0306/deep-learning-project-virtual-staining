@@ -69,7 +69,7 @@ class CycleGANLoss:
     def discriminator_loss(self, D, real, fake, replay_buffer=None):
         # Real loss
         pred_real = D(real)
-        loss_real = self.criterion_GAN(pred_real, torch.ones_like(pred_real))
+        loss_real = self.criterion_GAN(pred_real, 0.9 * torch.ones_like(pred_real))
 
         # Fake loss
         fake_buffer = replay_buffer.push_and_pop(fake) if replay_buffer else fake
@@ -101,7 +101,7 @@ if __name__ == "__main__":
         real_A, real_B, G_AB, G_BA, D_A, D_B
     )
     print("Generator loss:", loss_G)
-    
+
     loss_D_A = loss_fn.discriminator_loss(D_A, real_A, fake_A)
     loss_D_B = loss_fn.discriminator_loss(D_B, real_B, fake_B)
     print("Discriminator A loss:", loss_D_A)
