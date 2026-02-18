@@ -570,9 +570,13 @@ if __name__ == "__main__":
     os.makedirs(val_dir, exist_ok=True)
     print(f"Validation image directory: {val_dir}")
 
+    # Take user input for epoch_size and num_epochs
+    epoch_size = int(input("Enter Epoch Size: "))
+    num_epochs = int(input("Enter Number of Epochs: "))
+
     # Start training with 3000 samples per epoch
     history, G_AB, G_BA, D_A, D_B = train(
-        epoch_size=3000, num_epochs=5, model_dir=model_dir, val_dir=val_dir
+        epoch_size=epoch_size, num_epochs=num_epochs, model_dir=model_dir, val_dir=val_dir
     )
     visualize_history(history, model_dir=model_dir)
     save_history_to_csv(
