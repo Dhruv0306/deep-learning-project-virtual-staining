@@ -1,10 +1,12 @@
 # Imports
 import torch
 import torch.optim as optim
+import torch.nn as nn
 from torch.amp.autocast_mode import autocast
 from torch.amp.grad_scaler import GradScaler
+import torchvision
 import os
-from data_loader import getDataLoader
+from data_loader import getDataLoader, denormalize
 from generator import getGenerators
 from discriminator import getDiscriminators
 from losses import CycleGANLoss
@@ -14,7 +16,7 @@ import pandas as pd
 from datetime import datetime
 
 
-def train(epoch_size=None, num_epochs=None, model_dir=None):
+def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
     """
     Train a CycleGAN model for image-to-image translation.
 
@@ -28,6 +30,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None):
         epoch_size (int, optional): Number of samples per epoch. Defaults to 3000 if None.
         num_epochs (int, optional): Total number of training epochs. Defaults to 200 if None.
         model_dir (str, optional): Directory path to save model checkpoints. Defaults to "models" if None.
+        val_dir (str, optional): Validation directory path to save validation images
 
     Returns:
         tuple: A tuple containing:
@@ -234,9 +237,170 @@ def train(epoch_size=None, num_epochs=None, model_dir=None):
         lr_scheduler_D_A.step()
         lr_scheduler_D_B.step()
 
+        # Run validation every epochs
+        save_dir = f"{val_dir}\\epoch_{epoch+1}"
+        run_validation(
+            epoch=epoch + 1,
+            G_AB=G_AB,
+            G_BA=G_BA,
+            test_loader=test_loader,
+            device=device,
+            save_dir=save_dir,
+            num_samples=5,
+        )
+
     return history, G_AB, G_BA, D_A, D_B
 
 
+# Function to Validate model
+def run_validation(epoch, G_AB, G_BA, test_loader, device, save_dir, num_samples=3):
+    """
+    Run validation for the CycleGAN model and save sample output images.
+
+    This function evaluates the generators on the test dataset, generates translated
+    images, and saves a few samples for visual inspection.
+
+    Args:
+        epoch (int): Current epoch number (used for naming saved images)
+        G_AB (torch.nn.Module): Generator for A->B translation
+        G_BA (torch.nn.Module): Generator for B->A translation
+        test_loader (DataLoader): DataLoader for the test dataset
+        device (torch.device): Device to run the validation on
+        save_dir (str): Directory to save the generated sample images
+        num_samples (int, optional): Number of sample images to save. Defaults to 3.
+    """
+    # Set generators to evaluation mode
+    G_AB.eval()
+    G_BA.eval()
+
+    # Define validation loss
+    total_cycle_loss = 0
+    total_identity_loss = 0
+
+    # Disable grad
+    with torch.no_grad():
+        # Create directory for saving validation images if it doesn't exist
+        os.makedirs(save_dir, exist_ok=True)
+
+    with torch.no_grad():
+        for i, batch in enumerate(test_loader):
+            if i >= num_samples:
+                break
+            print(f"Validating Image {i}.")
+
+            real_A = batch["A"].to(device)
+            real_B = batch["B"].to(device)
+
+            fake_B = G_AB(real_A)
+            rec_A = G_BA(fake_B)
+            fake_A = G_BA(real_B)
+            rec_B = G_AB(fake_A)
+            idt_A = G_BA(real_A)
+            idt_B = G_AB(real_B)
+
+            loss_idt_A = nn.L1Loss()(idt_A, real_A)
+            loss_idt_B = nn.L1Loss()(idt_B, real_B)
+            loss_cycle_A = nn.L1Loss()(rec_A, real_A)
+            loss_cycle_B = nn.L1Loss()(rec_B, real_B)
+            total_cycle_loss += loss_cycle_A.item() + loss_cycle_B.item()
+            total_identity_loss += loss_idt_A.item() + loss_idt_B.item()
+
+            # Save sample images for visual inspection
+            # Save image as real_A | fack_B | rec_A | real_B as save_dir\\epoch_{epoch}_A.png
+            # Save image as real_B | fack_A | rec_B | real_A as save_dir\\epoch_{epoch}_B.png
+            save_validation_image(
+                img_id=i + 1,
+                real_A=real_A,
+                fake_B=fake_B,
+                rec_A=rec_A,
+                real_B=real_B,
+                fake_A=fake_A,
+                rec_B=rec_B,
+                epoch=epoch,
+                save_dir=save_dir,
+            )
+    
+    total_cycle_loss /= num_samples
+    total_identity_loss /= num_samples
+    print(f"Validation Epoch {epoch}: Average Cycle Loss: {total_cycle_loss:.4f}, Average Identity Loss: {total_identity_loss:.4f}")
+    G_AB.train()
+    G_BA.train()
+
+# Function to save validation images
+def save_validation_image(
+    img_id, real_A, fake_B, rec_A, real_B, fake_A, rec_B, epoch, save_dir=None
+):
+    """
+    Save a grid of images from a tensor.
+
+    This function takes image tensors (real_A, fake_B, rec_A, etc.) and saves them as a single grid image.
+
+    Args:
+        real_A : real_A tensor
+        fake_B : fake_B tensor
+        rec_A : rec_A tensor
+        real_B : real_B tensor
+        fake_A : fake_A tensor
+        rec_B : rec_B tensor
+        epoch (int): Current epoch number (used for naming saved images)
+        save_dir (str, optional): Directory to save the image
+    """
+    filename_A = (
+        f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\validation_images\\epoch_{epoch}_A.png"
+        if save_dir is None
+        else f"{save_dir}\\image_{img_id}_A.png"
+    )
+    filename_B = (
+        f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\validation_images\\epoch_{epoch}_B.png"
+        if save_dir is None
+        else f"{save_dir}\\image_{img_id}_B.png"
+    )
+
+    # Denormalize tensors
+    real_A = denormalize(real_A[0]).permute(1, 2, 0).cpu().numpy()
+    fake_B = denormalize(fake_B[0]).permute(1, 2, 0).cpu().numpy()
+    rec_A = denormalize(rec_A[0]).permute(1, 2, 0).cpu().numpy()
+    real_B = denormalize(real_B[0]).permute(1, 2, 0).cpu().numpy()
+    fake_A = denormalize(fake_A[0]).permute(1, 2, 0).cpu().numpy()
+    rec_B = denormalize(rec_B[0]).permute(1, 2, 0).cpu().numpy()
+
+    # Save Figure real_A | fake_B | rec_A | real_B
+    fig, axs = plt.subplots(1, 4, figsize=(28, 7))
+    axs[0].imshow(real_A)
+    axs[0].set_title("Real A")
+    axs[1].imshow(fake_B)
+    axs[1].set_title("Fake B")
+    axs[2].imshow(rec_A)
+    axs[2].set_title("Rec A")
+    axs[3].imshow(real_B)
+    axs[3].set_title("Real B")
+    for ax in axs.flat:
+        ax.axis("off")
+
+    plt.tight_layout()
+    plt.savefig(filename_A)
+    plt.close()
+
+    # Save Figure real_B | fake_A | rec_B | real_A
+    fig, axs = plt.subplots(1, 4, figsize=(28, 7))
+    axs[0].imshow(real_B)
+    axs[0].set_title("Real B")
+    axs[1].imshow(fake_A)
+    axs[1].set_title("Fake A")
+    axs[2].imshow(rec_B)
+    axs[2].set_title("Rec B")
+    axs[3].imshow(real_A)
+    axs[3].set_title("Real A")
+    for ax in axs.flat:
+        ax.axis("off")
+
+    plt.tight_layout()
+    plt.savefig(filename_B)
+    plt.close()
+    print(f"Validation images saved.")
+
+
+# Function to visualize training history and save it as a plot
 def visualize_history(history, model_dir=None):
     """
     Visualize the training history of CycleGAN losses.
@@ -408,7 +572,7 @@ if __name__ == "__main__":
 
     # Start training with 3000 samples per epoch
     history, G_AB, G_BA, D_A, D_B = train(
-        epoch_size=3000, num_epochs=5, model_dir=model_dir
+        epoch_size=3000, num_epochs=5, model_dir=model_dir, val_dir=val_dir
     )
     visualize_history(history, model_dir=model_dir)
     save_history_to_csv(
