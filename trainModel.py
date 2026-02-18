@@ -1,11 +1,12 @@
 # Imports
+import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 import torch
 import torch.optim as optim
 import torch.nn as nn
 from torch.amp.autocast_mode import autocast
 from torch.amp.grad_scaler import GradScaler
-import torchvision
-import os
+from torch.utils.tensorboard import SummaryWriter
 from data_loader import getDataLoader, denormalize
 from generator import getGenerators
 from discriminator import getDiscriminators
@@ -116,6 +117,10 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
     )
     os.makedirs(model_dir, exist_ok=True)
 
+    # Initialize TensorBoard writer for logging training metrics
+    os.makedirs(f"{model_dir}\\tensorboard_logs", exist_ok=True)
+    writer = SummaryWriter(log_dir=f"{model_dir}\\tensorboard_logs")
+
     # Main training loop over epochs
     for epoch in range(num_epochs):
 
@@ -126,6 +131,9 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
         D_B.train()
         # Dictionary to store loss values for current epoch
         epochStep = {}
+
+        # add epoch number to tensorboard
+        writer.add_scalar("Epoch: ", epoch + 1, epoch + 1)
 
         # Training loop over batches
         for i, batch in enumerate(train_loader):
@@ -214,6 +222,12 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
                     f"Loss_D_B: {loss_D_B.item():.4f}"
                 )
 
+                # Log losses to TensorBoard
+                global_step = epoch * len(train_loader) + i
+                writer.add_scalar("Loss/Generator", loss_G.item(), global_step)
+                writer.add_scalar("Loss/Discriminator_A", loss_D_A.item(), global_step)
+                writer.add_scalar("Loss/Discriminator_B", loss_D_B.item(), global_step)
+
         # Store epoch history
         history[epoch + 1] = epochStep
         # Save checkpoint every 20 epochs
@@ -231,14 +245,39 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
                 },
                 f"{model_dir}\\checkpoint_epoch_{epoch+1}.pth",
             )
+            writer.add_scalar("Checkpoint saved", epoch + 1, epoch + 1)
 
         # Step LR schedulers at the end of each epoch
         lr_scheduler_G.step()
         lr_scheduler_D_A.step()
         lr_scheduler_D_B.step()
 
+        # Print learning rates for monitoring
+        print(
+            f"Epoch [{epoch + 1}/{num_epochs}] "
+            f"Learning Rate G: {lr_scheduler_G.get_last_lr()[0]:.6f} "
+            f"Learning Rate D_A: {lr_scheduler_D_A.get_last_lr()[0]:.6f} "
+            f"Learning Rate D_B: {lr_scheduler_D_B.get_last_lr()[0]:.6f}"
+        )
+
+        # Log learning rates to TensorBoard
+        writer.add_scalar(
+            "Learning Rate/Generator", lr_scheduler_G.get_last_lr()[0], epoch + 1
+        )
+        writer.add_scalar(
+            "Learning Rate/Discriminator_A",
+            lr_scheduler_D_A.get_last_lr()[0],
+            epoch + 1,
+        )
+        writer.add_scalar(
+            "Learning Rate/Discriminator_B",
+            lr_scheduler_D_B.get_last_lr()[0],
+            epoch + 1,
+        )
+
         # Run validation every epochs
         save_dir = f"{val_dir}\\epoch_{epoch+1}"
+        writer.add_scalar("Validation Started", epoch + 1, epoch + 1)
         run_validation(
             epoch=epoch + 1,
             G_AB=G_AB,
@@ -247,9 +286,11 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
             device=device,
             save_dir=save_dir,
             num_samples=5,
+            writer=writer,
         )
 
     # Save final model checkpoint after training completes
+    writer.add_scalar("Training Completed", num_epochs, num_epochs)
     torch.save(
         {
             "epoch": num_epochs,
@@ -263,11 +304,15 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
         },
         f"{model_dir}\\final_checkpoint_epoch_{num_epochs}.pth",
     )
+
+    writer.close()
     return history, G_AB, G_BA, D_A, D_B
 
 
 # Function to Validate model
-def run_validation(epoch, G_AB, G_BA, test_loader, device, save_dir, num_samples=3):
+def run_validation(
+    epoch, G_AB, G_BA, test_loader, device, save_dir, num_samples=3, writer=None
+):
     """
     Run validation for the CycleGAN model and save sample output images.
 
@@ -282,6 +327,7 @@ def run_validation(epoch, G_AB, G_BA, test_loader, device, save_dir, num_samples
         device (torch.device): Device to run the validation on
         save_dir (str): Directory to save the generated sample images
         num_samples (int, optional): Number of sample images to save. Defaults to 3.
+        writer (SummaryWriter, optional): TensorBoard writer for logging validation metrics. Defaults to None.
     """
     # Set generators to evaluation mode
     G_AB.eval()
@@ -301,6 +347,8 @@ def run_validation(epoch, G_AB, G_BA, test_loader, device, save_dir, num_samples
             if i >= num_samples:
                 break
             print(f"Validating Image {i}.")
+            if writer is not None:
+                writer.add_scalar("Validation Image", i + 1, epoch)
 
             real_A = batch["A"].to(device)
             real_B = batch["B"].to(device)
@@ -339,6 +387,11 @@ def run_validation(epoch, G_AB, G_BA, test_loader, device, save_dir, num_samples
     print(
         f"Validation Epoch {epoch}: Average Cycle Loss: {total_cycle_loss:.4f}, Average Identity Loss: {total_identity_loss:.4f}"
     )
+    if writer is not None:
+        writer.add_scalar("Validation/Average Cycle Loss", total_cycle_loss, epoch)
+        writer.add_scalar(
+            "Validation/Average Identity Loss", total_identity_loss, epoch
+        )
     G_AB.train()
     G_BA.train()
 
