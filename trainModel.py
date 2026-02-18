@@ -249,6 +249,20 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
             num_samples=5,
         )
 
+    # Save final model checkpoint after training completes
+    torch.save(
+        {
+            "epoch": num_epochs,
+            "G_AB": G_AB.state_dict(),
+            "G_BA": G_BA.state_dict(),
+            "D_A": D_A.state_dict(),
+            "D_B": D_B.state_dict(),
+            "optimizer_G": optimizer_G.state_dict(),
+            "optimizer_D_A": optimizer_D_A.state_dict(),
+            "optimizer_D_B": optimizer_D_B.state_dict(),
+        },
+        f"{model_dir}\\final_checkpoint_epoch_{num_epochs}.pth",
+    )
     return history, G_AB, G_BA, D_A, D_B
 
 
@@ -319,12 +333,15 @@ def run_validation(epoch, G_AB, G_BA, test_loader, device, save_dir, num_samples
                 epoch=epoch,
                 save_dir=save_dir,
             )
-    
+
     total_cycle_loss /= num_samples
     total_identity_loss /= num_samples
-    print(f"Validation Epoch {epoch}: Average Cycle Loss: {total_cycle_loss:.4f}, Average Identity Loss: {total_identity_loss:.4f}")
+    print(
+        f"Validation Epoch {epoch}: Average Cycle Loss: {total_cycle_loss:.4f}, Average Identity Loss: {total_identity_loss:.4f}"
+    )
     G_AB.train()
     G_BA.train()
+
 
 # Function to save validation images
 def save_validation_image(
@@ -576,7 +593,10 @@ if __name__ == "__main__":
 
     # Start training with 3000 samples per epoch
     history, G_AB, G_BA, D_A, D_B = train(
-        epoch_size=epoch_size, num_epochs=num_epochs, model_dir=model_dir, val_dir=val_dir
+        epoch_size=epoch_size,
+        num_epochs=num_epochs,
+        model_dir=model_dir,
+        val_dir=val_dir,
     )
     visualize_history(history, model_dir=model_dir)
     save_history_to_csv(
