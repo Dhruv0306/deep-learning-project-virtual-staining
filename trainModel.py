@@ -13,6 +13,7 @@ from generator import getGenerators
 from discriminator import getDiscriminators
 from losses import CycleGANLoss
 from metrics import MetricsCalculator
+from EarlyStopping import EarlyStopping
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -73,6 +74,8 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
     scaler = GradScaler("cuda", enabled=use_amp)
     # Initialize metrics calculator for evaluating model performance during validation
     metrics_calculator = MetricsCalculator(device=device)
+    # Initialize early stopping mechanism with specified patience and thresholds
+    early_stopping = EarlyStopping(patience=10, min_delta=0.0001, divergence_threshold=5.0)
 
     # Move models to device
     G_AB = G_AB.to(device)
@@ -148,6 +151,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
 
         # Training loop over batches
         for i, batch in enumerate(train_loader):
+            i += 1  # Start batch index from 1 for better readability
 
             # Move real images from both domains to device
             real_A = batch["A"].to(device, non_blocking=True)
@@ -224,7 +228,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
                 "Loss_D_B": loss_D_B.item(),
             }
             # Print progress every 50 batches
-            if i % 50 == 0:
+            if i == 1 or i % 50 == 0:
                 print(
                     f"Epoch [{epoch + 1}/{num_epochs}] "
                     f"Batch [{i}/{len(train_loader)}] "
@@ -304,7 +308,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
 
         # Add validation metrics to TensorBoard every 10 epochs
         if (epoch + 1) % 10 == 0:
-            calculate_metrics(
+            avg_metrics = calculate_metrics(
                 calculator=metrics_calculator,
                 G_AB=G_AB,
                 G_BA=G_BA,
@@ -313,6 +317,13 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
                 writer=writer,
                 epoch=epoch + 1,
             )
+            print(f"Epoch {epoch + 1} Validation Metrics: {avg_metrics}")
+            avg_ssim = (avg_metrics.get('ssim_A', 0) + avg_metrics.get('ssim_B', 0)) / 2
+            avg_loss = (loss_G.item() + loss_D_A.item() + loss_D_B.item()) / 3
+            
+            if early_stopping(avg_ssim, avg_loss):
+                print(f"Early stopping at epoch {epoch + 1}")
+                break
 
     # Do a final validation metrics calculation at the end of training
     print("\n")
@@ -412,6 +423,8 @@ def calculate_metrics(calculator, G_AB, G_BA, test_loader, device, writer, epoch
 
     G_AB.train()
     G_BA.train()
+
+    return avg_metrics
 
 
 # Function to Validate model
