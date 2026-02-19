@@ -57,10 +57,16 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
     G_AB, G_BA = getGenerators()
     # Initialize discriminators for both domains
     D_A, D_B = getDiscriminators()
-    # Initialize CycleGAN loss function with cycle and identity loss weights
-    loss_fn = CycleGANLoss(lambda_cycle=10.0, lambda_identity=5.0)
     # Set device to GPU if available, otherwise CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Initialize CycleGAN loss function with cycle and identity loss weights
+    loss_fn = CycleGANLoss(
+        lambda_cycle=10.0,
+        lambda_identity=5.0,
+        lambda_cycle_perceptual=0.1,
+        lambda_identity_perceptual=0.05,
+        device=device,
+    )
     # Enable automatic mixed precision only for CUDA devices
     use_amp = device.type == "cuda"
     # Initialize gradient scaler for mixed precision training
@@ -161,7 +167,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
             # Forward pass through generators with mixed precision
             with autocast("cuda", enabled=use_amp):
                 loss_G, fake_A, fake_B = loss_fn.generator_loss(
-                    real_A, real_B, G_AB, G_BA, D_A, D_B
+                    real_A, real_B, G_AB, G_BA, D_A, D_B, epoch, num_epochs
                 )
 
             # Backward pass and optimizer step with gradient scaling
