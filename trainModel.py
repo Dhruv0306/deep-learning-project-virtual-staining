@@ -404,6 +404,9 @@ def calculate_metrics(calculator, G_AB, G_BA, test_loader, device, writer, epoch
     if "fid" in avg_metrics:
         print(f"FID Score: {avg_metrics['fid']:.2f}")
 
+    G_AB.train()
+    G_BA.train()
+
 
 # Function to Validate model
 def run_validation(
