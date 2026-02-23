@@ -14,6 +14,7 @@ from EarlyStopping import EarlyStopping
 from generator import getGenerators
 from losses import CycleGANLoss
 from metrics import MetricsCalculator
+from testing import run_testing
 from validation import calculate_metrics, run_validation
 
 
@@ -39,7 +40,9 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
     use_amp = device.type == "cuda"
     scaler = GradScaler("cuda", enabled=use_amp)
     metrics_calculator = MetricsCalculator(device=device)
-    early_stopping = EarlyStopping(patience=10, min_delta=0.0001, divergence_threshold=5.0)
+    early_stopping = EarlyStopping(
+        patience=10, min_delta=0.0001, divergence_threshold=5.0
+    )
 
     G_AB = G_AB.to(device)
     G_BA = G_BA.to(device)
@@ -206,7 +209,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
             test_loader=test_loader,
             device=device,
             save_dir=save_dir,
-            num_samples=5,
+            num_samples=10,
             writer=writer,
         )
 
@@ -237,6 +240,19 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
         device=device,
         writer=writer,
         epoch=num_epochs,
+    )
+
+    test_dir = os.path.join(model_dir, "test_images", f"epoch_{num_epochs}")
+    writer.add_scalar("Testing Started", num_epochs, num_epochs)
+    run_testing(
+        G_AB=G_AB,
+        G_BA=G_BA,
+        test_loader=test_loader,
+        device=device,
+        save_dir=test_dir,
+        writer=writer,
+        epoch=num_epochs,
+        num_samples=200,
     )
 
     writer.add_scalar("Training Completed", num_epochs, num_epochs)
