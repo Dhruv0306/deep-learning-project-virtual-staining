@@ -242,7 +242,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
         epoch=num_epochs,
     )
 
-    test_dir = os.path.join(model_dir, "test_images", f"epoch_{num_epochs}")
+    test_dir = os.path.join(model_dir, "test_images")
     writer.add_scalar("Testing Started", num_epochs, num_epochs)
     run_testing(
         G_AB=G_AB,
