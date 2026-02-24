@@ -121,3 +121,46 @@ def save_history_to_csv(history, filename):
     df = pd.DataFrame(flattened_data)
     df.to_csv(filename, index=False)
     print(f"\nHistory saved to {filename}")
+
+
+def append_history_to_csv(history, filename):
+    if not history:
+        return
+
+    flattened_data = []
+    for epoch, batches in history.items():
+        for batch, losses in batches.items():
+            row = {"Epoch": int(epoch), "Batch": int(batch)}
+            row.update(losses)
+            flattened_data.append(row)
+
+    if not flattened_data:
+        return
+
+    df = pd.DataFrame(flattened_data)
+    write_header = not os.path.exists(filename) or os.path.getsize(filename) == 0
+    df.to_csv(filename, mode="a", header=write_header, index=False)
+    print(f"\nHistory chunk appended to {filename}")
+
+
+def load_history_from_csv(filename):
+    if not os.path.exists(filename):
+        return {}
+
+    df = pd.read_csv(filename)
+    if df.empty:
+        return {}
+
+    history = {}
+    for _, row in df.iterrows():
+        epoch = int(row["Epoch"])
+        batch = int(row["Batch"])
+        history.setdefault(epoch, {})
+        history[epoch][batch] = {
+            "Batch": batch,
+            "Loss_G": float(row["Loss_G"]),
+            "Loss_D_A": float(row["Loss_D_A"]),
+            "Loss_D_B": float(row["Loss_D_B"]),
+        }
+
+    return history

@@ -12,6 +12,7 @@ from data_loader import getDataLoader
 from discriminator import getDiscriminators
 from EarlyStopping import EarlyStopping
 from generator import getGenerators
+from history_utils import append_history_to_csv, load_history_from_csv
 from losses import CycleGANLoss
 from metrics import MetricsCalculator
 from testing import run_testing
@@ -78,6 +79,9 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(f"{model_dir}\\tensorboard_logs", exist_ok=True)
     writer = SummaryWriter(log_dir=f"{model_dir}\\tensorboard_logs")
+    history_csv_path = os.path.join(model_dir, "training_history.csv")
+    if os.path.exists(history_csv_path):
+        os.remove(history_csv_path)
 
     for epoch in range(num_epochs):
         print("\n")
@@ -134,14 +138,14 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
             scaler.step(optimizer_D_B)
             scaler.update()
 
-            epoch_step[i + 1] = {
-                "Batch": i + 1,
+            epoch_step[i] = {
+                "Batch": i,
                 "Loss_G": loss_G.item(),
                 "Loss_D_A": loss_D_A.item(),
                 "Loss_D_B": loss_D_B.item(),
             }
 
-            if i == 1 or i % 50 == 0:
+            if i == 1 or i == len(train_loader) or i % 50 == 0:
                 print(
                     f"Epoch [{epoch + 1}/{num_epochs}] "
                     f"Batch [{i}/{len(train_loader)}] "
@@ -156,6 +160,10 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
                 writer.add_scalar("Loss/Discriminator_B", loss_D_B.item(), global_step)
 
         history[epoch + 1] = epoch_step
+
+        if (epoch + 1) % 5 == 0:
+            append_history_to_csv(history, history_csv_path)
+            history.clear()
 
         if (epoch + 1) % 20 == 0:
             torch.save(
@@ -269,6 +277,9 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
         },
         f"{model_dir}\\final_checkpoint_epoch_{num_epochs}.pth",
     )
+
+    append_history_to_csv(history, history_csv_path)
+    history = load_history_from_csv(history_csv_path)
 
     writer.close()
     return history, G_AB, G_BA, D_A, D_B
