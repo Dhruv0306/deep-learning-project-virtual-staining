@@ -1,11 +1,10 @@
 import os
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+from torchvision.utils import make_grid, save_image
 
-from data_loader import denormalize
 
 
 def calculate_metrics(calculator, G_AB, G_BA, test_loader, device, writer, epoch):
@@ -142,40 +141,12 @@ def save_validation_image(
         else f"{save_dir}\\image_{img_id}_B.png"
     )
 
-    real_A = denormalize(real_A[0]).permute(1, 2, 0).cpu().numpy()
-    fake_B = denormalize(fake_B[0]).permute(1, 2, 0).cpu().numpy()
-    rec_A = denormalize(rec_A[0]).permute(1, 2, 0).cpu().numpy()
-    real_B = denormalize(real_B[0]).permute(1, 2, 0).cpu().numpy()
-    fake_A = denormalize(fake_A[0]).permute(1, 2, 0).cpu().numpy()
-    rec_B = denormalize(rec_B[0]).permute(1, 2, 0).cpu().numpy()
+    row_A = torch.cat([real_A[:1], fake_B[:1], rec_A[:1], real_B[:1]], dim=0).detach().cpu()
+    row_B = torch.cat([real_B[:1], fake_A[:1], rec_B[:1], real_A[:1]], dim=0).detach().cpu()
 
-    fig, axs = plt.subplots(1, 4, figsize=(28, 7))
-    axs[0].imshow(real_A)
-    axs[0].set_title("Real A")
-    axs[1].imshow(fake_B)
-    axs[1].set_title("Fake B")
-    axs[2].imshow(rec_A)
-    axs[2].set_title("Rec A")
-    axs[3].imshow(real_B)
-    axs[3].set_title("Real B")
-    for ax in axs.flat:
-        ax.axis("off")
-    plt.tight_layout()
-    plt.savefig(filename_A)
-    plt.close()
+    grid_A = make_grid(row_A, nrow=4, normalize=True, value_range=(-1, 1))
+    grid_B = make_grid(row_B, nrow=4, normalize=True, value_range=(-1, 1))
 
-    fig, axs = plt.subplots(1, 4, figsize=(28, 7))
-    axs[0].imshow(real_B)
-    axs[0].set_title("Real B")
-    axs[1].imshow(fake_A)
-    axs[1].set_title("Fake A")
-    axs[2].imshow(rec_B)
-    axs[2].set_title("Rec B")
-    axs[3].imshow(real_A)
-    axs[3].set_title("Real A")
-    for ax in axs.flat:
-        ax.axis("off")
-    plt.tight_layout()
-    plt.savefig(filename_B)
-    plt.close()
+    save_image(grid_A, filename_A)
+    save_image(grid_B, filename_B)
     print("Validation images saved.")
