@@ -19,7 +19,7 @@ from testing import run_testing
 from validation import calculate_metrics, run_validation
 
 
-def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
+def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_size=None):
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
@@ -260,7 +260,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None):
         save_dir=test_dir,
         writer=writer,
         epoch=num_epochs,
-        num_samples=200,
+        num_samples=200 if test_size is None else int(test_size),
     )
 
     writer.add_scalar("Training Completed", num_epochs, num_epochs)

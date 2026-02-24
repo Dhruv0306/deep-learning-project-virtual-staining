@@ -16,12 +16,14 @@ def main():
 
     epoch_size = int(input("Enter Epoch Size: "))
     num_epochs = int(input("Enter Number of Epochs: "))
+    test_size = float(input("Enter Test Size: "))
 
     history, G_AB, G_BA, D_A, D_B = train(
         epoch_size=epoch_size,
         num_epochs=num_epochs,
         model_dir=model_dir,
         val_dir=val_dir,
+        test_size=test_size,
     )
 
     visualize_history(history, model_dir=model_dir)
