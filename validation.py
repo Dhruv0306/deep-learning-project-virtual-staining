@@ -6,7 +6,6 @@ import torch.nn as nn
 from torchvision.utils import make_grid, save_image
 
 
-
 def calculate_metrics(calculator, G_AB, G_BA, test_loader, device, writer, epoch):
     G_AB.eval()
     G_BA.eval()
@@ -101,7 +100,7 @@ def run_validation(
             total_cycle_loss += loss_cycle_A.item() + loss_cycle_B.item()
             total_identity_loss += loss_idt_A.item() + loss_idt_B.item()
 
-            save_validation_image(
+            save_images(
                 img_id=i + 1,
                 real_A=real_A,
                 fake_B=fake_B,
@@ -127,8 +126,17 @@ def run_validation(
     G_BA.train()
 
 
-def save_validation_image(
-    img_id, real_A, fake_B, rec_A, real_B, fake_A, rec_B, epoch, save_dir=None
+def save_images(
+    img_id,
+    real_A,
+    fake_B,
+    rec_A,
+    real_B,
+    fake_A,
+    rec_B,
+    epoch,
+    save_dir=None,
+    is_test=False,
 ):
     filename_A = (
         f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\validation_images\\epoch_{epoch}_A.png"
@@ -141,12 +149,16 @@ def save_validation_image(
         else f"{save_dir}\\image_{img_id}_B.png"
     )
 
-    row_A = torch.cat([real_A[:1], fake_B[:1], rec_A[:1], real_B[:1]], dim=0).detach().cpu()
-    row_B = torch.cat([real_B[:1], fake_A[:1], rec_B[:1], real_A[:1]], dim=0).detach().cpu()
+    row_A = (
+        torch.cat([real_A[:1], fake_B[:1], rec_A[:1], real_B[:1]], dim=0).detach().cpu()
+    )
+    row_B = (
+        torch.cat([real_B[:1], fake_A[:1], rec_B[:1], real_A[:1]], dim=0).detach().cpu()
+    )
 
     grid_A = make_grid(row_A, nrow=4, normalize=True, value_range=(-1, 1))
     grid_B = make_grid(row_B, nrow=4, normalize=True, value_range=(-1, 1))
 
     save_image(grid_A, filename_A)
     save_image(grid_B, filename_B)
-    print("Validation images saved.")
+    print("Validation images saved." if not is_test else "Testing images saved.")

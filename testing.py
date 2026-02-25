@@ -3,7 +3,7 @@ import os
 import torch
 import torch.nn as nn
 
-from validation import save_validation_image
+from validation import save_images
 
 
 def run_testing(
@@ -14,7 +14,9 @@ def run_testing(
 
     total_cycle_loss = 0
     total_identity_loss = 0
-    num_samples = len(test_loader) if num_samples is None else min(num_samples, len(test_loader))
+    num_samples = (
+        len(test_loader) if num_samples is None else min(num_samples, len(test_loader))
+    )
     num_samples = max(1, num_samples)
 
     os.makedirs(save_dir, exist_ok=True)
@@ -51,7 +53,7 @@ def run_testing(
             total_cycle_loss += loss_cycle_A.item() + loss_cycle_B.item()
             total_identity_loss += loss_idt_A.item() + loss_idt_B.item()
 
-            save_validation_image(
+            save_images(
                 img_id=i + 1,
                 real_A=real_A,
                 fake_B=fake_B,
@@ -61,6 +63,7 @@ def run_testing(
                 rec_B=rec_B,
                 epoch=epoch if epoch is not None else "test",
                 save_dir=save_dir,
+                is_test=True,
             )
 
     total_cycle_loss /= num_samples
@@ -72,7 +75,9 @@ def run_testing(
     if writer is not None:
         log_step = num_samples if epoch is None else epoch
         writer.add_scalar("Testing/Average Cycle Loss", total_cycle_loss, log_step)
-        writer.add_scalar("Testing/Average Identity Loss", total_identity_loss, log_step)
+        writer.add_scalar(
+            "Testing/Average Identity Loss", total_identity_loss, log_step
+        )
 
     G_AB.train()
     G_BA.train()
