@@ -3,7 +3,9 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from torchvision.utils import make_grid, save_image
+from torchvision.utils import make_grid
+from torchvision.transforms.functional import to_pil_image
+from PIL import Image, ImageDraw, ImageFont
 
 
 def calculate_metrics(calculator, G_AB, G_BA, test_loader, device, writer, epoch):
@@ -126,6 +128,36 @@ def run_validation(
     G_BA.train()
 
 
+def save_images_with_title(
+    row_tensor, labels, out_path, value_range=(-1, 1), header_h=36
+):
+    # row_tensor: [4, C, H, W]
+    grid = make_grid(row_tensor, nrow=4, normalize=True, value_range=value_range)
+    grid_img = to_pil_image(grid)  # PIL RGB
+
+    w, h = grid_img.size
+    cell_w = w // 4
+
+    canvas = Image.new("RGB", (w, h + header_h), color=(255, 255, 255))
+    canvas.paste(grid_img, (0, header_h))
+
+    draw = ImageDraw.Draw(canvas)
+    try:
+        font = ImageFont.truetype("arial.ttf", 16)
+    except OSError:
+        font = ImageFont.load_default()
+
+    for i, text in enumerate(labels):
+        x_center = i * cell_w + cell_w // 2
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text(
+            (x_center - tw // 2, (header_h - th) // 2), text, fill=(0, 0, 0), font=font
+        )
+
+    canvas.save(out_path)
+
+
 def save_images(
     img_id,
     real_A,
@@ -139,12 +171,21 @@ def save_images(
     is_test=False,
 ):
     filename_A = (
-        f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\validation_images\\epoch_{epoch}_A.png"
+        (
+            f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\validation_images\\epoch_{epoch}_A.png"
+            if not is_test
+            else f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\test_images\\epoch_{epoch}_A.png"
+        )
         if save_dir is None
         else f"{save_dir}\\image_{img_id}_A.png"
     )
+
     filename_B = (
-        f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\validation_images\\epoch_{epoch}_B.png"
+        (
+            f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\validation_images\\epoch_{epoch}_B.png"
+            if not is_test
+            else f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\test_images\\epoch_{epoch}_B.png"
+        )
         if save_dir is None
         else f"{save_dir}\\image_{img_id}_B.png"
     )
@@ -156,9 +197,16 @@ def save_images(
         torch.cat([real_B[:1], fake_A[:1], rec_B[:1], real_A[:1]], dim=0).detach().cpu()
     )
 
-    grid_A = make_grid(row_A, nrow=4, normalize=True, value_range=(-1, 1))
-    grid_B = make_grid(row_B, nrow=4, normalize=True, value_range=(-1, 1))
-
-    save_image(grid_A, filename_A)
-    save_image(grid_B, filename_B)
+    save_images_with_title(
+        row_A,
+        labels=["Real A", "Fake B", "Rec A", "Real B"],
+        out_path=filename_A,
+        value_range=(-1, 1),
+    )
+    save_images_with_title(
+        row_B,
+        labels=["Real B", "Fake A", "Rec B", "Real A"],
+        out_path=filename_B,
+        value_range=(-1, 1),
+    )
     print("Validation images saved." if not is_test else "Testing images saved.")
