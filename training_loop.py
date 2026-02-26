@@ -1,4 +1,5 @@
 import os
+import math
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
@@ -41,8 +42,16 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
     use_amp = device.type == "cuda"
     scaler = GradScaler("cuda", enabled=use_amp)
     metrics_calculator = MetricsCalculator(device=device)
+    early_stopping_check_interval = 10
+    early_stopping_patience_epochs = 40
+    early_stopping_warmup_epochs = 80
     early_stopping = EarlyStopping(
-        patience=10, min_delta=0.0001, divergence_threshold=5.0
+        patience=max(
+            1, math.ceil(early_stopping_patience_epochs / early_stopping_check_interval)
+        ),
+        min_delta=0.00001,
+        divergence_threshold=5.0,
+        divergence_patience=2,
     )
 
     G_AB = G_AB.to(device)
@@ -83,6 +92,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
     if os.path.exists(history_csv_path):
         os.remove(history_csv_path)
 
+    stopped_epoch = num_epochs
     for epoch in range(num_epochs):
         print("\n")
 
@@ -91,6 +101,9 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
         D_A.train()
         D_B.train()
         epoch_step = {}
+        epoch_loss_G = 0.0
+        epoch_loss_D_A = 0.0
+        epoch_loss_D_B = 0.0
 
         writer.add_scalar("Epoch: ", epoch + 1, epoch + 1)
 
@@ -144,6 +157,9 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
                 "Loss_D_A": loss_D_A.item(),
                 "Loss_D_B": loss_D_B.item(),
             }
+            epoch_loss_G += loss_G.item()
+            epoch_loss_D_A += loss_D_A.item()
+            epoch_loss_D_B += loss_D_B.item()
 
             if i == 1 or i == len(train_loader) or i % 50 == 0:
                 print(
@@ -221,7 +237,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             writer=writer,
         )
 
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % early_stopping_check_interval == 0:
             avg_metrics = calculate_metrics(
                 calculator=metrics_calculator,
                 G_AB=G_AB,
@@ -233,10 +249,69 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             )
             print(f"Epoch {epoch + 1} Validation Metrics: {avg_metrics}")
             avg_ssim = (avg_metrics.get("ssim_A", 0) + avg_metrics.get("ssim_B", 0)) / 2
-            avg_loss = (loss_G.item() + loss_D_A.item() + loss_D_B.item()) / 3
+            num_train_batches = max(1, len(train_loader))
+            avg_loss_G = epoch_loss_G / num_train_batches
+            avg_loss_D_A = epoch_loss_D_A / num_train_batches
+            avg_loss_D_B = epoch_loss_D_B / num_train_batches
+            tracked_losses = {
+                "G": avg_loss_G,
+                "D_A": avg_loss_D_A,
+                "D_B": avg_loss_D_B,
+            }
 
-            if early_stopping(avg_ssim, avg_loss):
+            should_stop = False
+            if (epoch + 1) >= early_stopping_warmup_epochs:
+                should_stop = early_stopping(avg_ssim, tracked_losses)
+            print(
+                f"EarlyStopping status | "
+                f"epoch={epoch + 1} "
+                f"avg_ssim={avg_ssim:.6f} "
+                f"loss_G={avg_loss_G:.6f} "
+                f"loss_D_A={avg_loss_D_A:.6f} "
+                f"loss_D_B={avg_loss_D_B:.6f} "
+                f"best_ssim={early_stopping.best_ssim:.6f} "
+                f"best_loss_G={early_stopping.best_losses.get('G', float('nan')):.6f} "
+                f"best_loss_D_A={early_stopping.best_losses.get('D_A', float('nan')):.6f} "
+                f"best_loss_D_B={early_stopping.best_losses.get('D_B', float('nan')):.6f} "
+                f"counter={early_stopping.counter}/{early_stopping.patience} "
+                f"div_counter={early_stopping.divergence_counter}/{early_stopping.divergence_patience} "
+                f"warmup_until={early_stopping_warmup_epochs} "
+                f"stop={should_stop}"
+            )
+            writer.add_scalar("EarlyStopping/avg_ssim", avg_ssim, epoch + 1)
+            writer.add_scalar("EarlyStopping/loss_G", avg_loss_G, epoch + 1)
+            writer.add_scalar("EarlyStopping/loss_D_A", avg_loss_D_A, epoch + 1)
+            writer.add_scalar("EarlyStopping/loss_D_B", avg_loss_D_B, epoch + 1)
+            writer.add_scalar(
+                "EarlyStopping/best_ssim", early_stopping.best_ssim, epoch + 1
+            )
+            writer.add_scalar(
+                "EarlyStopping/best_loss_G",
+                early_stopping.best_losses.get("G", float("nan")),
+                epoch + 1,
+            )
+            writer.add_scalar(
+                "EarlyStopping/best_loss_D_A",
+                early_stopping.best_losses.get("D_A", float("nan")),
+                epoch + 1,
+            )
+            writer.add_scalar(
+                "EarlyStopping/best_loss_D_B",
+                early_stopping.best_losses.get("D_B", float("nan")),
+                epoch + 1,
+            )
+            writer.add_scalar(
+                "EarlyStopping/counter", early_stopping.counter, epoch + 1
+            )
+            writer.add_scalar(
+                "EarlyStopping/divergence_counter",
+                early_stopping.divergence_counter,
+                epoch + 1,
+            )
+
+            if should_stop:
                 print(f"Early stopping at epoch {epoch + 1}")
+                stopped_epoch = epoch + 1
                 break
 
     print("\n")
@@ -247,11 +322,11 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
         test_loader=test_loader,
         device=device,
         writer=writer,
-        epoch=num_epochs,
+        epoch=stopped_epoch,
     )
 
     test_dir = os.path.join(model_dir, "test_images")
-    writer.add_scalar("Testing Started", num_epochs, num_epochs)
+    writer.add_scalar("Testing Started", stopped_epoch, stopped_epoch)
     run_testing(
         G_AB=G_AB,
         G_BA=G_BA,
@@ -259,14 +334,14 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
         device=device,
         save_dir=test_dir,
         writer=writer,
-        epoch=num_epochs,
+        epoch=stopped_epoch,
         num_samples=200 if test_size is None else int(test_size),
     )
 
-    writer.add_scalar("Training Completed", num_epochs, num_epochs)
+    writer.add_scalar("Training Completed", stopped_epoch, stopped_epoch)
     torch.save(
         {
-            "epoch": num_epochs,
+            "epoch": stopped_epoch,
             "G_AB": G_AB.state_dict(),
             "G_BA": G_BA.state_dict(),
             "D_A": D_A.state_dict(),
@@ -275,7 +350,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             "optimizer_D_A": optimizer_D_A.state_dict(),
             "optimizer_D_B": optimizer_D_B.state_dict(),
         },
-        f"{model_dir}\\final_checkpoint_epoch_{num_epochs}.pth",
+        f"{model_dir}\\final_checkpoint_epoch_{stopped_epoch}.pth",
     )
 
     append_history_to_csv(history, history_csv_path)
