@@ -10,17 +10,6 @@ Image.MAX_IMAGE_PIXELS = None
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
 
-def preprocess_image(img, size=256):
-    """Resize to a fixed square and normalize to [-1, 1] for GAN training."""
-    # Keep spatial shape consistent for the model input.
-    img = img.resize((size, size), Image.BICUBIC)
-    # Convert to float for normalization math.
-    img = np.array(img).astype(np.float32)
-    # Map [0, 255] to [-1, 1] (CycleGAN-style convention).
-    img = (img / 127.5) - 1.0  # normalize to [-1, 1]
-    return img
-
-
 def extract_patches_pil(img, patch_size=256, stride=256):
     """Extract non-overlapping (or strided) patches from a PIL image."""
     # PIL uses (width, height) ordering.
@@ -57,11 +46,8 @@ def save_patches(image_path, save_dir, patch_size=256):
     print(f"Processing Patch for image {base}")
 
     for i, patch in enumerate(patches):
-        # Normalize then denormalize so saved patches are standard 8-bit images.
-        patch = preprocess_image(patch, patch_size)
-        # Convert back to 0-255 uint8 for saving.
-        patch = ((patch + 1) * 127.5).astype(np.uint8)
-        patch = Image.fromarray(patch)
+        # Keep the patch as 8-bit RGB; normalization is handled during data loading.
+        patch = patch.resize((patch_size, patch_size), Image.Resampling.BICUBIC)
         patch.save(os.path.join(save_dir, f"{base}_{i}.png"))
 
 
