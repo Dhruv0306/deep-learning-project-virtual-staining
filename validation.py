@@ -82,8 +82,6 @@ def run_validation(
             if i >= num_samples:
                 break
             print(f"Validating Image {i}.")
-            if writer is not None:
-                writer.add_scalar("Validation Image", i + 1, epoch)
 
             real_A = batch["A"].to(device)
             real_B = batch["B"].to(device)

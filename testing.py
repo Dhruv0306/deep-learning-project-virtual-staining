@@ -32,9 +32,6 @@ def run_testing(
                 break
 
             print(f"Testing Image {i}.")
-            if writer is not None:
-                log_step = i + 1 if epoch is None else epoch
-                writer.add_scalar("Testing Image", i + 1, log_step)
 
             real_A = batch["A"].to(device)
             real_B = batch["B"].to(device)

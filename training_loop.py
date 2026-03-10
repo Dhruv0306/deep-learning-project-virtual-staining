@@ -170,12 +170,10 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
                     f"Loss_D_B: {loss_D_B.item():.4f}"
                 )
 
-                global_step = epoch * len(train_loader) + i
-                writer.add_scalar("Loss/Generator", loss_G.item(), global_step)
-                writer.add_scalar("Loss/Discriminator_A", loss_D_A.item(), global_step)
-                writer.add_scalar("Loss/Discriminator_B", loss_D_B.item(), global_step)
-
         history[epoch + 1] = epoch_step
+        writer.add_scalar("Loss/Generator", epoch_loss_G / len(train_loader), epoch + 1)
+        writer.add_scalar("Loss/Discriminator_A", epoch_loss_D_A / len(train_loader), epoch + 1)
+        writer.add_scalar("Loss/Discriminator_B", epoch_loss_D_B / len(train_loader), epoch + 1)
 
         if (epoch + 1) % 5 == 0:
             append_history_to_csv(history, history_csv_path)
