@@ -60,9 +60,9 @@ def reconstruct_tensor_from_patches(patches, image_size, patch_size=256):
     idx = 0
     for top in range(0, height, patch_size):
         for left in range(0, width, patch_size):
-            reconstructed[:, top : top + patch_size, left : left + patch_size] = patches[
-                idx
-            ]
+            reconstructed[:, top : top + patch_size, left : left + patch_size] = (
+                patches[idx]
+            )
             idx += 1
 
     return reconstructed
@@ -122,8 +122,21 @@ if __name__ == "__main__":
     )
 
     # Image paths
-    unstained_image_path = "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\Un_Stained\\HC21-01338(A3-1).10X unstained.jpg"
-    stained_image_path = "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\C_Stained\\HC21-01338(A3-1).10X unstained.jpg"
+    unstained_image_path = input("Provide Path to Unstained Image: ")
+    stained_image_path = input("Provide Path to Stained Image: ")
+    unstained_image_path = (
+        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\Un_Stained\\HC21-01338(A3-1).10X unstained.jpg"
+        if unstained_image_path is None or unstained_image_path == ""
+        else unstained_image_path.replace("\\", "\\\\" )
+    )
+    stained_image_path = (
+        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\C_Stained\\HC21-01338(A3-2).10X unstained.jpg"
+        if stained_image_path is None or stained_image_path == ""
+        else stained_image_path.replace("\\", "\\\\")
+    )
+
+    print(f"Unstained Image Path: {unstained_image_path}")
+    print(f"Stained Image Path: {stained_image_path}")
 
     # A -> B (unstained -> stained)
     original_size, padded_size, num_patches, stained_output_path = (
