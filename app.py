@@ -2,9 +2,12 @@ import torch
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 from PIL import Image
+from PIL import ImageFile
 import math
 from generator import ResnetGenerator
-from preprocess_data import extract_patches_pil
+
+Image.MAX_IMAGE_PIXELS = None
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 def load_model(checkpoint_path=None, device="cpu"):
@@ -52,31 +55,78 @@ def pad_to_patch_multiple(image, patch_size=256):
     return padded, (width, height)
 
 
-def reconstruct_tensor_from_patches(patches, image_size, patch_size=256):
+def extract_patches_with_coords(pil_image, patch_size=256, stride=256):
+    width, height = pil_image.size
+    top_positions = list(range(0, height - patch_size + 1, stride))
+    left_positions = list(range(0, width - patch_size + 1, stride))
+
+    if top_positions[-1] != height - patch_size:
+        top_positions.append(height - patch_size)
+    if left_positions[-1] != width - patch_size:
+        left_positions.append(width - patch_size)
+
+    patches = []
+    positions = []
+    for top in top_positions:
+        for left in left_positions:
+            patch = pil_image.crop((left, top, left + patch_size, top + patch_size))
+            patches.append(patch)
+            positions.append((top, left))
+
+    return patches, positions
+
+
+def _blend_window(patch_size, device, dtype, eps=0.05):
+    if patch_size <= 1:
+        return torch.ones(1, 1, device=device, dtype=dtype)
+
+    window_1d = torch.sin(torch.linspace(0, math.pi, patch_size, device=device, dtype=dtype)) ** 2
+    window_1d = window_1d * (1.0 - eps) + eps
+    window_2d = window_1d[:, None] * window_1d[None, :]
+    return window_2d
+
+
+def reconstruct_tensor_from_patches(
+    patches, positions, image_size, patch_size=256, stride=256
+):
     width, height = image_size
+    dtype = patches[0].dtype
+    device = patches[0].device
+
     # Keep output in normalized [-1, 1] tensor space to avoid patch-wise quantization.
-    reconstructed = torch.ones(3, height, width, dtype=patches[0].dtype)
+    reconstructed = torch.zeros(3, height, width, dtype=dtype, device=device)
+    weight_map = torch.zeros(1, height, width, dtype=dtype, device=device)
 
-    idx = 0
-    for top in range(0, height, patch_size):
-        for left in range(0, width, patch_size):
-            reconstructed[:, top : top + patch_size, left : left + patch_size] = (
-                patches[idx]
-            )
-            idx += 1
+    if stride < patch_size:
+        window = _blend_window(patch_size, device=device, dtype=dtype).unsqueeze(0)
+    else:
+        window = torch.ones(1, patch_size, patch_size, dtype=dtype, device=device)
 
+    for patch, (top, left) in zip(patches, positions):
+        reconstructed[:, top : top + patch_size, left : left + patch_size] += (
+            patch * window
+        )
+        weight_map[:, top : top + patch_size, left : left + patch_size] += window
+
+    reconstructed = reconstructed / weight_map.clamp_min(1e-6)
     return reconstructed
 
 
 def translate_image_from_patches(
-    input_image_path, model, transform, output_path, patch_size=256, device="cpu"
+    input_image_path,
+    model,
+    transform,
+    output_path,
+    patch_size=256,
+    stride=256,
+    device="cpu",
 ):
     input_image = Image.open(input_image_path).convert("RGB")
     original_size = input_image.size
     padded_image, _ = pad_to_patch_multiple(input_image, patch_size=patch_size)
 
-    input_patches = extract_patches_pil(
-        padded_image, patch_size=patch_size, stride=patch_size
+    input_patches, positions = extract_patches_with_coords(
+        padded_image, patch_size=patch_size, stride=stride
     )
     translated_patches = []
 
@@ -87,7 +137,11 @@ def translate_image_from_patches(
             translated_patches.append(translated_patch)
 
     reconstructed_padded = reconstruct_tensor_from_patches(
-        translated_patches, padded_image.size, patch_size=patch_size
+        translated_patches,
+        positions,
+        padded_image.size,
+        patch_size=patch_size,
+        stride=stride,
     )
     reconstructed = reconstructed_padded[:, : original_size[1], : original_size[0]]
 
@@ -113,6 +167,7 @@ if __name__ == "__main__":
 
     # Create transform
     patch_size = 256
+    stride = patch_size // 2
     transform = transforms.Compose(
         [
             transforms.Resize((patch_size, patch_size)),
@@ -146,6 +201,7 @@ if __name__ == "__main__":
             transform=transform,
             output_path="data\\reconstructed_stained_output.png",
             patch_size=patch_size,
+            stride=stride,
             device=device,
         )
     )
@@ -154,6 +210,7 @@ if __name__ == "__main__":
     print(f"[Stain] Padded Image size: {padded_size}")
     print(f"[Stain] Num patches: {num_patches}")
     print(f"[Stain] Saved reconstructed stained image at: {stained_output_path}")
+    print(f"[Stain] Patch stride: {stride}")
 
     # B -> A (stained -> unstained)
     original_size, padded_size, num_patches, unstained_output_path = (
@@ -163,6 +220,7 @@ if __name__ == "__main__":
             transform=transform,
             output_path="data\\reconstructed_unstained_output.png",
             patch_size=patch_size,
+            stride=stride,
             device=device,
         )
     )
@@ -170,3 +228,6 @@ if __name__ == "__main__":
     print(f"[Unstain] Padded Image size: {padded_size}")
     print(f"[Unstain] Num patches: {num_patches}")
     print(f"[Unstain] Saved reconstructed unstained image at: {unstained_output_path}")
+    print(f"[Unstain] Patch stride: {stride}")
+Image.MAX_IMAGE_PIXELS = None
+ImageFile.LOAD_TRUNCATED_IMAGES = True
