@@ -1,3 +1,10 @@
+"""
+Validation helpers for CycleGAN.
+
+Provides metric computation and image saving utilities used during
+training and testing.
+"""
+
 import os
 
 import numpy as np
@@ -9,6 +16,20 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 def calculate_metrics(calculator, G_AB, G_BA, test_loader, device, writer, epoch):
+    """
+    Compute validation metrics on a subset of the test loader.
+
+    Args:
+        calculator (MetricsCalculator): Metric computation helper.
+        G_AB, G_BA (nn.Module): Generators.
+        test_loader (DataLoader): Test/validation data loader.
+        device (torch.device): Target device.
+        writer (SummaryWriter): TensorBoard writer.
+        epoch (int): Current epoch number.
+
+    Returns:
+        dict: Average metrics (ssim, psnr, optional fid).
+    """
     G_AB.eval()
     G_BA.eval()
 
@@ -35,6 +56,7 @@ def calculate_metrics(calculator, G_AB, G_BA, test_loader, device, writer, epoch
 
     avg_metrics = {key: np.mean(values) for key, values in val_metrics.items()}
 
+    # Compute FID on a small subset to reduce overhead.
     if len(real_B_list) > 10:
         real_B_tensor = torch.cat(real_B_list[:10])
         fake_B_tensor = torch.cat(fake_B_list[:10])
@@ -62,6 +84,18 @@ def calculate_metrics(calculator, G_AB, G_BA, test_loader, device, writer, epoch
 def run_validation(
     epoch, G_AB, G_BA, test_loader, device, save_dir, num_samples=3, writer=None
 ):
+    """
+    Run qualitative validation and save comparison images.
+
+    Args:
+        epoch (int): Current epoch.
+        G_AB, G_BA (nn.Module): Generators.
+        test_loader (DataLoader): Test/validation loader.
+        device (torch.device): Target device.
+        save_dir (str): Output directory for images.
+        num_samples (int): Number of samples to visualize.
+        writer (SummaryWriter | None): TensorBoard writer.
+    """
     G_AB.eval()
     G_BA.eval()
 
@@ -93,6 +127,7 @@ def run_validation(
             idt_A = G_BA(real_A)
             idt_B = G_AB(real_B)
 
+            # Compute identity and cycle losses for logging only.
             loss_idt_A = idt_A_loss(idt_A, real_A)
             loss_idt_B = idt_B_loss(idt_B, real_B)
             loss_cycle_A = cycle_A_loss(rec_A, real_A)
@@ -115,7 +150,8 @@ def run_validation(
     total_cycle_loss /= num_samples
     total_identity_loss /= num_samples
     print(
-        f"Validation Epoch {epoch}: Average Cycle Loss: {total_cycle_loss:.4f}, Average Identity Loss: {total_identity_loss:.4f}"
+        f"Validation Epoch {epoch}: Average Cycle Loss: {total_cycle_loss:.4f}, "
+        f"Average Identity Loss: {total_identity_loss:.4f}"
     )
     if writer is not None:
         writer.add_scalar("Validation/Average Cycle Loss", total_cycle_loss, epoch)
@@ -129,7 +165,16 @@ def run_validation(
 def save_images_with_title(
     row_tensor, labels, out_path, value_range=(-1, 1), header_h=36
 ):
-    # row_tensor: [4, C, H, W]
+    """
+    Save a 1x4 grid of images with a text header row.
+
+    Args:
+        row_tensor (torch.Tensor): Tensor with shape [4, C, H, W].
+        labels (list[str]): Text labels for each column.
+        out_path (str): Output image path.
+        value_range (tuple): Min/max for normalization.
+        header_h (int): Header height in pixels.
+    """
     grid = make_grid(row_tensor, nrow=4, normalize=True, value_range=value_range)
     grid_img = to_pil_image(grid)  # PIL RGB
 
@@ -168,6 +213,16 @@ def save_images(
     save_dir=None,
     is_test=False,
 ):
+    """
+    Save validation or test image rows for both domains.
+
+    Args:
+        img_id (int): Image index for naming.
+        real_A, fake_B, rec_A, real_B, fake_A, rec_B (torch.Tensor): Image tensors.
+        epoch (int | str): Epoch identifier for filenames.
+        save_dir (str | None): Output directory.
+        is_test (bool): Whether this is a test run.
+    """
     filename_A = (
         (
             f"data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models\\validation_images\\epoch_{epoch}_A.png"

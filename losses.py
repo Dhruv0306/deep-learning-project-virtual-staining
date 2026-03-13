@@ -1,3 +1,10 @@
+"""
+Loss definitions for the CycleGAN training loop.
+
+Includes a VGG19-based perceptual loss and a composite CycleGAN loss
+with GAN, cycle-consistency, identity, and perceptual terms.
+"""
+
 # Imports
 import torch
 import torch.nn as nn
@@ -5,11 +12,20 @@ import torchvision.models as models
 from replay_buffer import ReplayBuffer
 
 # Full Loss Structure
-# L_G = L_GAN + λ_cycle * L_cycle + λ_identity * L_identity
+# L_G = L_GAN + lambda_cycle * L_cycle + lambda_identity * L_identity
+#       + lambda_cycle_perceptual * L_cycle_perceptual
+#       + lambda_identity_perceptual * L_identity_perceptual
 
 
 # VGG19 Perceptual Loss Network
 class VGGPerceptualLoss(nn.Module):
+    """
+    Perceptual loss using VGG19 feature maps.
+
+    Computes L1 distance between VGG19 activations of two images. Uses
+    pretrained ImageNet weights and keeps all parameters frozen.
+    """
+
     def __init__(self):
         super(VGGPerceptualLoss, self).__init__()
         self.eval()
@@ -28,6 +44,17 @@ class VGGPerceptualLoss(nn.Module):
             param.requires_grad = False
 
     def forward(self, x, y):
+        """
+        Compute perceptual loss between two image batches.
+
+        Args:
+            x (torch.Tensor): Generated images (N, C, H, W).
+            y (torch.Tensor): Target images (N, C, H, W).
+
+        Returns:
+            torch.Tensor: Scalar perceptual loss.
+        """
+        # Expand grayscale to 3 channels if needed for VGG19.
         if x.shape[1] == 1:
             x = x.repeat(1, 3, 1, 1)
             y = y.repeat(1, 3, 1, 1)
@@ -45,17 +72,33 @@ class VGGPerceptualLoss(nn.Module):
         return loss
 
     def extract_features(self, x):
+        """
+        Run inputs through selected VGG19 layers.
+
+        Returns:
+            tuple: Feature maps from relu1_2, relu2_2, relu3_4.
+        """
         h1 = self.slice1(x)
         h2 = self.slice2(h1)
         h3 = self.slice3(h2)
         return h1, h2, h3
 
     def normalize(self, x):
+        """
+        Normalize inputs with ImageNet mean and std.
+        """
         return (x - self.mean) / self.std
 
 
 # CycleGAN Loss Class
 class CycleGANLoss:
+    """
+    Composite loss for CycleGAN training.
+
+    Combines GAN losses (LSGAN), cycle-consistency, identity, and
+    optional perceptual components.
+    """
+
     def __init__(
         self,
         lambda_cycle=10.0,
@@ -86,11 +129,23 @@ class CycleGANLoss:
         self.fake_B_buffer = ReplayBuffer()
 
     def get_identity_lambda(self, epoch, total_epochs):
-        if epoch <= 0.55*total_epochs : 
+        """
+        Decay the identity loss after 55% of training.
+
+        This helps stabilize early training but reduces the identity constraint
+        later so generators can better focus on translation.
+        """
+        if epoch <= 0.55 * total_epochs:
             return self.lambda_identity
-        return self.lambda_identity * (0.997**(epoch - 0.55*total_epochs))
+        return self.lambda_identity * (0.997 ** (epoch - 0.55 * total_epochs))
 
     def generator_loss(self, real_A, real_B, G_AB, G_BA, D_A, D_B, epoch, total_epochs):
+        """
+        Compute generator loss and produce fake samples.
+
+        Returns:
+            tuple: (loss_G, fake_A, fake_B)
+        """
 
         # ------------------
         # Identity Loss
@@ -165,11 +220,23 @@ class CycleGANLoss:
         return loss_G, fake_A, fake_B
 
     def discriminator_loss(self, D, real, fake, replay_buffer=None):
-        # Real loss
+        """
+        Compute discriminator loss with optional replay buffer.
+
+        Args:
+            D (nn.Module): Discriminator for the target domain.
+            real (torch.Tensor): Real samples from the domain.
+            fake (torch.Tensor): Newly generated samples.
+            replay_buffer (ReplayBuffer | None): Optional buffer of past fakes.
+
+        Returns:
+            torch.Tensor: Scalar discriminator loss.
+        """
+        # Real loss (LSGAN uses targets close to 1).
         pred_real = D(real)
         loss_real = self.criterion_GAN(pred_real, 0.8 * torch.ones_like(pred_real))
 
-        # Fake loss
+        # Fake loss (use buffered fakes to reduce model oscillation).
         fake_buffer = replay_buffer.push_and_pop(fake) if replay_buffer else fake
         pred_fake = D(fake_buffer.detach())
         loss_fake = self.criterion_GAN(pred_fake, torch.zeros_like(pred_fake))

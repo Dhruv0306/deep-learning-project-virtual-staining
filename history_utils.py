@@ -1,3 +1,9 @@
+"""
+Training history utilities.
+
+Provides visualization and CSV persistence helpers for CycleGAN training logs.
+"""
+
 import os
 
 import matplotlib.pyplot as plt
@@ -6,6 +12,13 @@ import pandas as pd
 
 
 def visualize_history(history, model_dir=None):
+    """
+    Plot and save training history charts.
+
+    Args:
+        history (dict): Nested dict of epoch -> batch -> loss values.
+        model_dir (str | None): Directory to save plots and CSVs.
+    """
     if not history:
         print("No training history to visualize.")
         return
@@ -15,6 +28,7 @@ def visualize_history(history, model_dir=None):
     avg_loss_D_A = []
     avg_loss_D_B = []
 
+    # Aggregate batch losses into per-epoch averages.
     for epoch in epochs:
         epoch_data = history[epoch]
         batch_loss_G = [batch_data["Loss_G"] for batch_data in epoch_data.values()]
@@ -60,6 +74,7 @@ def visualize_history(history, model_dir=None):
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
 
+    # Plot batch-wise losses for the final epoch to show training stability.
     if epochs:
         last_epoch = epochs[-1]
         last_epoch_data = history[last_epoch]
@@ -111,6 +126,13 @@ def visualize_history(history, model_dir=None):
 
 
 def save_history_to_csv(history, filename):
+    """
+    Save full training history to a CSV file.
+
+    Args:
+        history (dict): Nested dict of epoch -> batch -> loss values.
+        filename (str): Output CSV path.
+    """
     flattened_data = []
     for epoch, batches in history.items():
         for batch, losses in batches.items():
@@ -124,6 +146,13 @@ def save_history_to_csv(history, filename):
 
 
 def append_history_to_csv(history, filename):
+    """
+    Append training history to a CSV file in chunks.
+
+    Args:
+        history (dict): Nested dict of epoch -> batch -> loss values.
+        filename (str): Output CSV path.
+    """
     if not history:
         return
 
@@ -144,6 +173,15 @@ def append_history_to_csv(history, filename):
 
 
 def load_history_from_csv(filename):
+    """
+    Load training history from a CSV file.
+
+    Args:
+        filename (str): CSV path.
+
+    Returns:
+        dict: Nested dict of epoch -> batch -> loss values.
+    """
     if not os.path.exists(filename):
         return {}
 

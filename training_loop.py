@@ -1,6 +1,14 @@
+"""
+Training loop for the CycleGAN model.
+
+Handles data loading, model setup, loss computation, optimization, logging,
+validation, early stopping, and final evaluation.
+"""
+
 import os
 import math
 
+# Disable OneDNN optimizations to avoid numerical differences across systems.
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 import torch
@@ -21,17 +29,34 @@ from validation import calculate_metrics, run_validation
 
 
 def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_size=None):
+    """
+    Train CycleGAN generators and discriminators.
+
+    Args:
+        epoch_size (int | None): Max samples per epoch (defaults to loader default).
+        num_epochs (int | None): Number of epochs to train.
+        model_dir (str | None): Directory for checkpoints and logs.
+        val_dir (str | None): Directory for validation image outputs.
+        test_size (float | None): Number of test samples to export in testing.
+
+    Returns:
+        tuple: (history, G_AB, G_BA, D_A, D_B)
+    """
+    # Backend tuning for faster convolutions on GPU.
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
+    # Load training and test data.
     train_loader, test_loader = getDataLoader(
         epoch_size=3000 if epoch_size is None else epoch_size
     )
+    # Initialize models.
     G_AB, G_BA = getGenerators()
     D_A, D_B = getDiscriminators()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Composite CycleGAN loss with perceptual components.
     loss_fn = CycleGANLoss(
         lambda_cycle=10.0,
         lambda_identity=5.0,
@@ -39,12 +64,14 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
         lambda_identity_perceptual=0.05,
         device=device,
     )
+    # Mixed precision is used only when CUDA is available.
     use_amp = device.type == "cuda"
     scaler = GradScaler("cuda", enabled=use_amp)
     metrics_calculator = MetricsCalculator(device=device)
     early_stopping_check_interval = 10
     early_stopping_patience_epochs = 40
     early_stopping_warmup_epochs = 80
+    # Early stopping is triggered by validation SSIM and loss trends.
     early_stopping = EarlyStopping(
         patience=max(
             1, math.ceil(early_stopping_patience_epochs / early_stopping_check_interval)
@@ -54,11 +81,13 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
         divergence_patience=2,
     )
 
+    # Move models to the selected device.
     G_AB = G_AB.to(device)
     G_BA = G_BA.to(device)
     D_A = D_A.to(device)
     D_B = D_B.to(device)
 
+    # Optimizers share the standard CycleGAN hyperparameters.
     lr = 0.0002
     beta1 = 0.5
     optimizer_G = optim.Adam(
@@ -67,6 +96,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
     optimizer_D_A = optim.Adam(D_A.parameters(), lr=lr, betas=(beta1, 0.999))
     optimizer_D_B = optim.Adam(D_B.parameters(), lr=lr, betas=(beta1, 0.999))
 
+    # Linear learning rate decay after epoch 100.
     lr_scheduler_G = optim.lr_scheduler.LambdaLR(
         optimizer_G, lr_lambda=lambda epoch: 1.0 - max(0, epoch - 100) / 100
     )
@@ -80,6 +110,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
     num_epochs = 200 if num_epochs is None else num_epochs
     history = {}
 
+    # Set up output directories and TensorBoard logging.
     model_dir = (
         "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models"
         if model_dir is None
@@ -96,6 +127,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
     for epoch in range(num_epochs):
         print("\n")
 
+        # Switch all networks to train mode each epoch.
         G_AB.train()
         G_BA.train()
         D_A.train()
@@ -113,6 +145,10 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             real_A = batch["A"].to(device, non_blocking=True)
             real_B = batch["B"].to(device, non_blocking=True)
 
+            # -----------------------------
+            # Generator step
+            # -----------------------------
+            # Freeze discriminators so they do not update during generator loss.
             for p in D_A.parameters():
                 p.requires_grad_(False)
             for p in D_B.parameters():
@@ -128,6 +164,10 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             scaler.step(optimizer=optimizer_G)
             scaler.update()
 
+            # -----------------------------
+            # Discriminator steps
+            # -----------------------------
+            # Re-enable discriminator gradients.
             for p in D_A.parameters():
                 p.requires_grad_(True)
             for p in D_B.parameters():
@@ -161,6 +201,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             epoch_loss_D_A += loss_D_A.item()
             epoch_loss_D_B += loss_D_B.item()
 
+            # Progress log every 50 batches (and at ends).
             if i == 1 or i == len(train_loader) or i % 50 == 0:
                 print(
                     f"Epoch [{epoch + 1}/{num_epochs}] "
@@ -170,15 +211,18 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
                     f"Loss_D_B: {loss_D_B.item():.4f}"
                 )
 
+        # Store batch-level history for this epoch.
         history[epoch + 1] = epoch_step
         writer.add_scalar("Loss/Generator", epoch_loss_G / len(train_loader), epoch + 1)
         writer.add_scalar("Loss/Discriminator_A", epoch_loss_D_A / len(train_loader), epoch + 1)
         writer.add_scalar("Loss/Discriminator_B", epoch_loss_D_B / len(train_loader), epoch + 1)
 
+        # Periodically flush training history to CSV to avoid large memory usage.
         if (epoch + 1) % 5 == 0:
             append_history_to_csv(history, history_csv_path)
             history.clear()
 
+        # Save checkpoints every 20 epochs.
         if (epoch + 1) % 20 == 0:
             torch.save(
                 {
@@ -195,6 +239,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             )
             writer.add_scalar("Checkpoint saved", epoch + 1, epoch + 1)
 
+        # Step learning rate schedulers.
         lr_scheduler_G.step()
         lr_scheduler_D_A.step()
         lr_scheduler_D_B.step()
@@ -220,6 +265,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             epoch + 1,
         )
 
+        # Run qualitative validation image generation each epoch.
         if val_dir is None:
             val_dir = f"{model_dir}\\validation_images"
         save_dir = os.path.join(val_dir, f"epoch_{epoch+1}")
@@ -235,6 +281,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
             writer=writer,
         )
 
+        # Compute validation metrics and check early stopping at intervals.
         if (epoch + 1) % early_stopping_check_interval == 0:
             avg_metrics = calculate_metrics(
                 calculator=metrics_calculator,
@@ -313,6 +360,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
                 break
 
     print("\n")
+    # Final metrics on the best/last checkpoint.
     calculate_metrics(
         calculator=metrics_calculator,
         G_AB=G_AB,
@@ -323,6 +371,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
         epoch=stopped_epoch,
     )
 
+    # Run test set inference and save example outputs.
     test_dir = os.path.join(model_dir, "test_images")
     writer.add_scalar("Testing Started", stopped_epoch, stopped_epoch)
     run_testing(
@@ -336,6 +385,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
         num_samples=200 if test_size is None else int(test_size),
     )
 
+    # Save final checkpoint.
     writer.add_scalar("Training Completed", stopped_epoch, stopped_epoch)
     torch.save(
         {
@@ -351,6 +401,7 @@ def train(epoch_size=None, num_epochs=None, model_dir=None, val_dir=None, test_s
         f"{model_dir}\\final_checkpoint_epoch_{stopped_epoch}.pth",
     )
 
+    # Persist any remaining history and reload for a consistent return value.
     append_history_to_csv(history, history_csv_path)
     history = load_history_from_csv(history_csv_path)
 
