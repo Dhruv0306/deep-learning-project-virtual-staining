@@ -1,3 +1,10 @@
+"""
+Preprocessing script for building CycleGAN training/test datasets.
+
+Splits whole-slide images into fixed-size patches and writes them into
+trainA/trainB/testA/testB folders.
+"""
+
 import os
 from PIL import Image
 import numpy as np
@@ -11,13 +18,22 @@ warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
 
 def extract_patches_pil(img, patch_size=256, stride=256):
-    """Extract non-overlapping (or strided) patches from a PIL image."""
+    """
+    Extract patches from a PIL image.
+
+    Args:
+        img (PIL.Image.Image): Source image.
+        patch_size (int): Square patch size.
+        stride (int): Stride between patches; stride == patch_size is non-overlap.
+
+    Returns:
+        list[PIL.Image.Image]: List of patch images.
+    """
     # PIL uses (width, height) ordering.
     img_w, img_h = img.size
     patches = []
 
     # Slide a window across the image to collect tiles.
-    # Using stride == patch_size yields non-overlapping patches.
     for top in range(0, img_h - patch_size + 1, stride):
         for left in range(0, img_w - patch_size + 1, stride):
             patch = img.crop((left, top, left + patch_size, top + patch_size))
@@ -27,6 +43,17 @@ def extract_patches_pil(img, patch_size=256, stride=256):
 
 
 def split_filenames(file_list, train_ratio=0.8, seed=42):
+    """
+    Split a list of filenames into train and test subsets.
+
+    Args:
+        file_list (list[str]): Filenames to split.
+        train_ratio (float): Fraction to keep for training.
+        seed (int): RNG seed for reproducibility.
+
+    Returns:
+        tuple: (train_files, test_files)
+    """
     file_list = sorted(file_list)
     np.random.seed(seed)
     np.random.shuffle(file_list)
@@ -36,7 +63,14 @@ def split_filenames(file_list, train_ratio=0.8, seed=42):
 
 
 def save_patches(image_path, save_dir, patch_size=256):
-    """Load an image, extract patches, and write them as PNGs to save_dir."""
+    """
+    Load an image, extract patches, and write them as PNGs.
+
+    Args:
+        image_path (str): Path to the source image.
+        save_dir (str): Directory to save patches.
+        patch_size (int): Square patch size.
+    """
     # Convert to RGB to guarantee 3-channel patches for CycleGAN-style datasets.
     img = Image.open(image_path).convert("RGB")
     # Extract tiles directly from the full-resolution slide.
@@ -52,6 +86,9 @@ def save_patches(image_path, save_dir, patch_size=256):
 
 
 def main():
+    """
+    Entry point for preprocessing and dataset split generation.
+    """
     # Dataset root directory.
     DATASET_DIR = "data\\E_Staining_DermaRepo\\H_E-Staining_dataset"
     print(f'Dataset Dir "{DATASET_DIR}"')
