@@ -1,45 +1,59 @@
+"""
+Inference script for the CycleGAN histology stain / unstain translator.
+
+This repository only contains one model family: a ResNet-based CycleGAN
+generator pair saved in the checkpoint as ``G_AB`` and ``G_BA``. The script
+loads that checkpoint, splits large images into 256x256 patches, runs each
+patch through the appropriate generator, and blends overlapping patches back
+into a full-resolution image.
+"""
+
+import math
+import os
+
 import torch
 import torchvision.transforms as transforms
+from PIL import Image, ImageFile
 from torchvision.utils import save_image
-from PIL import Image
-from PIL import ImageFile
-import math
+
 from generator import ResnetGenerator
 
 Image.MAX_IMAGE_PIXELS = None
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-def load_model(checkpoint_path=None, device="cpu"):
-    if checkpoint_path is None:
-        raise ValueError("Checkpoint_path is required")
+def _load_checkpoint(checkpoint_path: str, device: str):
+    try:
+        return torch.load(checkpoint_path, map_location=device, weights_only=False)
+    except TypeError:
+        return torch.load(checkpoint_path, map_location=device)
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+def load_model(checkpoint_path: str, device: str = "cpu"):
+    if not checkpoint_path:
+        raise ValueError("checkpoint_path is required")
+
+    checkpoint = _load_checkpoint(checkpoint_path, device)
+    if "G_AB" not in checkpoint or "G_BA" not in checkpoint:
+        raise KeyError("Checkpoint must contain 'G_AB' and 'G_BA' state dicts.")
 
     G_AB = ResnetGenerator().to(device)
     G_BA = ResnetGenerator().to(device)
-
     G_AB.load_state_dict(checkpoint["G_AB"])
     G_BA.load_state_dict(checkpoint["G_BA"])
-
     G_AB.eval()
     G_BA.eval()
-
     return G_AB, G_BA
 
 
 def stain_image(image, model, device="cpu"):
-    with torch.no_grad():
-        image = image.to(device)
-        generated_image = model(image)
-        return generated_image.cpu()
+    with torch.inference_mode():
+        return model(image.to(device)).cpu()
 
 
 def unstain_image(image, model, device="cpu"):
-    with torch.no_grad():
-        image = image.to(device)
-        generated_image = model(image)
-        return generated_image.cpu()
+    with torch.inference_mode():
+        return model(image.to(device)).cpu()
 
 
 def pad_to_patch_multiple(image, patch_size=256):
@@ -80,10 +94,12 @@ def _blend_window(patch_size, device, dtype, eps=0.05):
     if patch_size <= 1:
         return torch.ones(1, 1, device=device, dtype=dtype)
 
-    window_1d = torch.sin(torch.linspace(0, math.pi, patch_size, device=device, dtype=dtype)) ** 2
+    window_1d = (
+        torch.sin(torch.linspace(0, math.pi, patch_size, device=device, dtype=dtype))
+        ** 2
+    )
     window_1d = window_1d * (1.0 - eps) + eps
-    window_2d = window_1d[:, None] * window_1d[None, :]
-    return window_2d
+    return window_1d[:, None] * window_1d[None, :]
 
 
 def reconstruct_tensor_from_patches(
@@ -93,7 +109,6 @@ def reconstruct_tensor_from_patches(
     dtype = patches[0].dtype
     device = patches[0].device
 
-    # Keep output in normalized [-1, 1] tensor space to avoid patch-wise quantization.
     reconstructed = torch.zeros(3, height, width, dtype=dtype, device=device)
     weight_map = torch.zeros(1, height, width, dtype=dtype, device=device)
 
@@ -108,8 +123,7 @@ def reconstruct_tensor_from_patches(
         )
         weight_map[:, top : top + patch_size, left : left + patch_size] += window
 
-    reconstructed = reconstructed / weight_map.clamp_min(1e-6)
-    return reconstructed
+    return reconstructed / weight_map.clamp_min(1e-6)
 
 
 def translate_image_from_patches(
@@ -132,7 +146,7 @@ def translate_image_from_patches(
 
     with torch.inference_mode():
         for patch in input_patches:
-            patch_tensor = transform(patch).unsqueeze(0).to(device)  # [1, 3, H, W]
+            patch_tensor = transform(patch).unsqueeze(0).to(device)
             translated_patch = model(patch_tensor).cpu().squeeze(0)
             translated_patches.append(translated_patch)
 
@@ -145,6 +159,7 @@ def translate_image_from_patches(
     )
     reconstructed = reconstructed_padded[:, : original_size[1], : original_size[0]]
 
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     save_image(
         reconstructed.unsqueeze(0),
         output_path,
@@ -155,20 +170,8 @@ def translate_image_from_patches(
     return original_size, padded_image.size, len(input_patches), output_path
 
 
-if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-
-    # Load the model
-    G_AB, G_BA = load_model(
-        checkpoint_path="data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\models_2026_02_24_18_30_51\\final_checkpoint_epoch_200.pth",
-        device=device,
-    )
-
-    # Create transform
-    patch_size = 256
-    stride = patch_size // 2
-    transform = transforms.Compose(
+def _build_transform(patch_size: int):
+    return transforms.Compose(
         [
             transforms.Resize((patch_size, patch_size)),
             transforms.ToTensor(),
@@ -176,49 +179,73 @@ if __name__ == "__main__":
         ]
     )
 
-    # Image paths
-    unstained_image_path = input("Provide Path to Unstained Image: ")
-    stained_image_path = input("Provide Path to Stained Image: ")
-    unstained_image_path = (
-        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\Un_Stained\\HC21-01338(A3-1).10X unstained.jpg"
-        if unstained_image_path is None or unstained_image_path == ""
-        else unstained_image_path.replace("\\", "\\\\" )
-    )
-    stained_image_path = (
-        "data\\E_Staining_DermaRepo\\H_E-Staining_dataset\\C_Stained\\HC21-01338(A3-2).10X unstained.jpg"
-        if stained_image_path is None or stained_image_path == ""
-        else stained_image_path.replace("\\", "\\\\")
-    )
+
+if __name__ == "__main__":
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    checkpoint_path = input("Enter checkpoint path: ").strip()
+    if not checkpoint_path:
+        checkpoint_path = os.path.join(
+            "data",
+            "E_Staining_DermaRepo",
+            "H_E-Staining_dataset",
+            "models_2026_02_24_18_30_51",
+            "final_checkpoint_epoch_200.pth",
+        )
+
+    G_AB, G_BA = load_model(checkpoint_path=checkpoint_path, device=device)
+
+    patch_size = 256
+    stride = patch_size // 2
+    transform = _build_transform(patch_size)
+
+    unstained_image_path = input("Provide Path to Unstained Image: ").strip()
+    stained_image_path = input("Provide Path to Stained Image: ").strip()
+
+    if not unstained_image_path:
+        unstained_image_path = os.path.join(
+            "data",
+            "E_Staining_DermaRepo",
+            "H_E-Staining_dataset",
+            "Un_Stained",
+            "HC21-01338(A3-1).10X unstained.jpg",
+        )
+    if not stained_image_path:
+        stained_image_path = os.path.join(
+            "data",
+            "E_Staining_DermaRepo",
+            "H_E-Staining_dataset",
+            "C_Stained",
+            "HC21-01338(A3-2).10X unstained.jpg",
+        )
 
     print(f"Unstained Image Path: {unstained_image_path}")
     print(f"Stained Image Path: {stained_image_path}")
 
-    # A -> B (unstained -> stained)
     original_size, padded_size, num_patches, stained_output_path = (
         translate_image_from_patches(
             input_image_path=unstained_image_path,
             model=G_AB,
             transform=transform,
-            output_path="data\\reconstructed_stained_output.png",
+            output_path=os.path.join("data", "reconstructed_stained_output.png"),
             patch_size=patch_size,
             stride=stride,
             device=device,
         )
     )
-
     print(f"[Stain] Original Image size: {original_size}")
     print(f"[Stain] Padded Image size: {padded_size}")
     print(f"[Stain] Num patches: {num_patches}")
     print(f"[Stain] Saved reconstructed stained image at: {stained_output_path}")
     print(f"[Stain] Patch stride: {stride}")
 
-    # B -> A (stained -> unstained)
     original_size, padded_size, num_patches, unstained_output_path = (
         translate_image_from_patches(
             input_image_path=stained_image_path,
             model=G_BA,
             transform=transform,
-            output_path="data\\reconstructed_unstained_output.png",
+            output_path=os.path.join("data", "reconstructed_unstained_output.png"),
             patch_size=patch_size,
             stride=stride,
             device=device,
@@ -229,5 +256,3 @@ if __name__ == "__main__":
     print(f"[Unstain] Num patches: {num_patches}")
     print(f"[Unstain] Saved reconstructed unstained image at: {unstained_output_path}")
     print(f"[Unstain] Patch stride: {stride}")
-Image.MAX_IMAGE_PIXELS = None
-ImageFile.LOAD_TRUNCATED_IMAGES = True
